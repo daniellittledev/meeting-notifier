@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <GenerateProgramFile>false</GenerateProgramFile>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+
+  <!--
+    F# cares about compile order. Pull Domain.fs and AlertEngine.fs from
+    the main project as source-linked files so the AlertEngine tests can
+    reference them without bringing in the Windows-only TFM of the app.
+  -->
+  <ItemGroup>
+    <Compile Include="..\..\src\MeetingNotifier\Domain.fs"
+             Link="_src\Domain.fs" />
+    <Compile Include="..\..\src\MeetingNotifier\AlertEngine.fs"
+             Link="_src\AlertEngine.fs" />
+    <Compile Include="AlertEngineTests.fs" />
+    <Compile Include="Program.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+    <PackageReference Include="FsUnit.xUnit" Version="6.0.0" />
+  </ItemGroup>
+
+</Project>
