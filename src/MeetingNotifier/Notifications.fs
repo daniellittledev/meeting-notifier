@@ -70,11 +70,8 @@ module Notifications =
                 | Some d -> Some d
                 | None ->
                     let isHeadphoneLike (d: MMDevice) =
-                        try
-                            let ff = d.DeviceFormFactor
-                            ff = DeviceFormFactor.Headphones
-                            || ff = DeviceFormFactor.Headset
-                        with _ -> false
+                        let name = d.FriendlyName.ToLowerInvariant()
+                        name.Contains "headphone" || name.Contains "headset"
                     match all |> List.tryFind (fun d -> not (isHeadphoneLike d)) with
                     | Some d -> Some d
                     | None ->

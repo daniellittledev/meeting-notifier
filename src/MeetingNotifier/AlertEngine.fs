@@ -45,7 +45,7 @@ module AlertEngine =
         for m in meetings do
             if not m.IsCancelled && not (isSnoozed now state m.Id) then
                 for t in thresholds do
-                    let key = { Meeting = m.Id; Threshold = t }
+                    let key : AlertKey = { Meeting = m.Id; Threshold = t }
                     if not (Set.contains key fired) && shouldFire now m t then
                         pending.Add { Meeting = m; Threshold = t }
                         fired <- Set.add key fired
