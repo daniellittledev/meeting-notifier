@@ -19,15 +19,18 @@ module TrayApp =
     [<Literal>]
     let private aumid = "MeetingNotifier.App"
 
-    let private loadTrayIcon () : Icon =
+    /// Returns the tray icon plus a flag for whether we own it (and so must
+    /// dispose it). The shared `SystemIcons.Application` must never be
+    /// disposed, so the fallback is reported as not-owned.
+    let private loadTrayIcon () : Icon * bool =
         let asm = Assembly.GetExecutingAssembly()
         // Prefer the embedded icon if present, otherwise fall back to the
         // system application icon so the tray isn't empty.
         let onDisk =
             let dir = Path.GetDirectoryName asm.Location
             Path.Combine(dir, "appicon.ico")
-        if File.Exists onDisk then new Icon(onDisk)
-        else SystemIcons.Application
+        if File.Exists onDisk then new Icon(onDisk), true
+        else SystemIcons.Application, false
 
     type TrayContext(cfg: Config.AppConfig,
                      source: GraphClient.ICalendarSource,
@@ -40,6 +43,7 @@ module TrayApp =
         let stateLock = obj()
         let cts = new CancellationTokenSource()
         let notifyIcon = new NotifyIcon()
+        let trayIcon, ownsTrayIcon = loadTrayIcon ()
         let menu = new ContextMenuStrip()
         let upcomingItem = new ToolStripMenuItem("Upcoming meetings")
         let startupItem = new ToolStripMenuItem("Run at startup")
@@ -96,6 +100,16 @@ module TrayApp =
                 // Ensure the file exists before asking the shell to open it.
                 if not (File.Exists Config.configPath) then
                     Config.save cfg
+                // Config is read once at launch, so changes only take effect
+                // on restart. Say so up front rather than leaving the user to
+                // wonder why their edit did nothing.
+                MessageBox.Show(
+                    "Edit and save config.json, then restart Meeting Notifier "
+                    + "for the changes to take effect.",
+                    "Meeting Notifier — settings",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information)
+                |> ignore
                 Process.Start(
                     ProcessStartInfo(Config.configPath, UseShellExecute = true))
                 |> ignore
@@ -141,7 +155,7 @@ module TrayApp =
                             p)
                     for pa in pending do
                         postToUi (fun () ->
-                            Notifications.fireAlert aumid cfg pa
+                            Notifications.fireAlert aumid cfg postToUi pa
                                 (handleAlertAction pa))
             }
 
@@ -209,7 +223,7 @@ module TrayApp =
             menu.Items.Add(new ToolStripSeparator() :> ToolStripItem) |> ignore
             menu.Items.Add(exitItem :> ToolStripItem) |> ignore
 
-            notifyIcon.Icon <- loadTrayIcon ()
+            notifyIcon.Icon <- trayIcon
             notifyIcon.Text <- "Meeting Notifier"
             notifyIcon.Visible <- true
             notifyIcon.ContextMenuStrip <- menu
@@ -222,6 +236,7 @@ module TrayApp =
             if disposing then
                 try cts.Cancel() with _ -> ()
                 try notifyIcon.Dispose() with _ -> ()
+                if ownsTrayIcon then (try trayIcon.Dispose() with _ -> ())
                 try menu.Dispose() with _ -> ()
                 try cts.Dispose() with _ -> ()
             base.Dispose(disposing)

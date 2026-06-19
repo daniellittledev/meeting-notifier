@@ -86,10 +86,10 @@ module AumidRegistration =
     let private pkeyAumid =
         PROPERTYKEY(Guid("9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3"), 5u)
 
-    let private shortcutPath aumid =
+    let private shortcutPath () =
         let programs =
             Environment.GetFolderPath Environment.SpecialFolder.Programs
-        Path.Combine(programs, $"MeetingNotifier.lnk")
+        Path.Combine(programs, "MeetingNotifier.lnk")
 
     let private currentExePath () =
         let proc = System.Diagnostics.Process.GetCurrentProcess()
@@ -99,8 +99,9 @@ module AumidRegistration =
     /// Create (or overwrite) the Start-Menu `.lnk` with the AUMID property
     /// set. Idempotent — safe to call at every startup.
     let ensure (aumid: string) : unit =
+        let mutable comObj : obj = null
         try
-            let lnk = shortcutPath aumid
+            let lnk = shortcutPath ()
             // Ensure the Programs directory exists (on some locked-down
             // profiles it might not). Failing silently is fine: toast
             // notifications will just be a no-op, which the user will
@@ -109,8 +110,8 @@ module AumidRegistration =
             if not (Directory.Exists dir) then
                 Directory.CreateDirectory dir |> ignore
 
-            let link =
-                Activator.CreateInstance(typeof<CShellLink>) :?> IShellLinkW
+            comObj <- Activator.CreateInstance(typeof<CShellLink>)
+            let link = comObj :?> IShellLinkW
             let exe = currentExePath ()
             link.SetPath(exe) |> ignore
             link.SetArguments("") |> ignore
@@ -132,3 +133,7 @@ module AumidRegistration =
             // Registration failures shouldn't crash the app; the user will
             // notice the missing toasts and we'll log to stderr.
             eprintfn "AUMID registration failed (toasts may not work)."
+        // Release the underlying COM object — IShellLink/IPropertyStore/
+        // IPersistFile are all the same RCW, so one release is enough.
+        if not (isNull comObj) then
+            try Marshal.ReleaseComObject comObj |> ignore with _ -> ()

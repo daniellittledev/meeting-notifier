@@ -19,6 +19,7 @@
     <Compile Include="Domain.fs" />
     <Compile Include="Config.fs" />
     <Compile Include="Auth.fs" />
+    <Compile Include="GraphParsing.fs" />
     <Compile Include="GraphClient.fs" />
     <Compile Include="AlertEngine.fs" />
     <Compile Include="AumidRegistration.fs" />

@@ -41,10 +41,18 @@ file is created with defaults; edit it and fill in `clientId` / `tenantId`:
 
 - `alertMinutesBefore` — array of thresholds. An alert fires when the
   meeting start is that many minutes away (default: 10m and 2m before).
+  Non-positive values are ignored; if none remain the defaults are used.
 - `audioDeviceName` — exact friendly name of the render device to play the
   chime through (e.g. `"Speakers (Realtek(R) Audio)"`). Leave empty to let
   the app auto-pick the first active non-headphone device.
-- `pollIntervalSeconds` — Graph calendarView poll cadence.
+- `pollIntervalSeconds` — Graph calendarView poll cadence. It is
+  automatically capped so it's never slower than the smallest alert window
+  (e.g. a 2-minute threshold forces a poll of at most 120s), otherwise a
+  tick could step over the window and miss the alert.
+
+Configuration is read once at launch, so **edits only take effect after you
+restart Meeting Notifier**. The Settings menu item reminds you of this when
+it opens the file.
 
 ## Build and run
 
@@ -84,6 +92,7 @@ Program.fs          entry point, wiring
   └─ TrayApp.fs           NotifyIcon + polling loop + UI marshalling
        ├─ Config.fs            %APPDATA%\...\config.json load/save
        ├─ Auth.fs              MSAL public client + persistent cache
+       ├─ GraphParsing.fs      PURE: Graph JSON → domain Meeting (+ paging)
        ├─ GraphClient.fs       ICalendarSource + Graph implementation
        ├─ AlertEngine.fs       PURE: which alerts fire this tick
        ├─ Notifications.fs     Toast + FlashWindowEx + NAudio
