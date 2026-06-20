@@ -112,6 +112,18 @@ git tag v1.0.0
 git push origin v1.0.0
 ```
 
+## Tray menu
+
+Right-click the tray icon for the menu. The top item is a **connection
+indicator** showing whether the background poll is reaching Microsoft Graph:
+
+- 🟢 **Connected** — the last poll succeeded and meetings are being tracked.
+- 🟡 **Connecting...** — startup, or a poll is in flight (no result yet).
+- 🔴 **Not connected** — the last poll failed; hover the item for the reason.
+
+The tray-icon tooltip mirrors the same state, and clicking the indicator
+forces an immediate poll instead of waiting for the next tick.
+
 ## Run at startup
 
 Right-click the tray icon → **Run at startup** (toggle). This writes
