@@ -4,6 +4,7 @@ open System
 open System.IO
 open System.Text.Json
 open System.Text.Json.Serialization
+open System.Text.Json.Serialization.Custom
 
 /// Loads and persists the on-disk JSON configuration at
 /// `%APPDATA%\MeetingNotifier\config.json`.
@@ -39,12 +40,36 @@ module Config =
                 PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
                 PropertyNameCaseInsensitive = true
             )
-        opts.Converters.Add(JsonFSharpConverter())
+        opts.Converters.Add(OptionJsonConverter())
         opts
 
     let private ensureDir () =
         if not (Directory.Exists appDataDir) then
             Directory.CreateDirectory appDataDir |> ignore
+
+    /// Pure normalisation of a freshly-deserialised config: replace nulls,
+    /// drop non-positive alert thresholds (which would silently never fire),
+    /// and clamp the poll interval so it's never slower than the smallest
+    /// alert window — otherwise a tick could step clean over that window and
+    /// miss the alert entirely. Kept pure so it can be unit-tested.
+    let sanitize (cfg: AppConfig) : AppConfig =
+        let thresholds =
+            let valid =
+                if isNull cfg.AlertMinutesBefore then [||]
+                else cfg.AlertMinutesBefore |> Array.filter (fun m -> m > 0)
+            if valid.Length = 0 then defaults.AlertMinutesBefore else valid
+        let configuredPoll =
+            if cfg.PollIntervalSeconds <= 0 then defaults.PollIntervalSeconds
+            else cfg.PollIntervalSeconds
+        let smallestWindowSecs = (Array.min thresholds) * 60
+        let poll = max 1 (min configuredPoll smallestWindowSecs)
+        { cfg with
+            AlertMinutesBefore = thresholds
+            PollIntervalSeconds = poll
+            ClientId = (if isNull cfg.ClientId then "" else cfg.ClientId)
+            TenantId = (if isNull cfg.TenantId then "" else cfg.TenantId)
+            AudioDeviceName =
+                (if isNull cfg.AudioDeviceName then "" else cfg.AudioDeviceName) }
 
     let save (cfg: AppConfig) : unit =
         ensureDir ()
@@ -64,18 +89,6 @@ module Config =
                 let json = File.ReadAllText configPath
                 let cfg = JsonSerializer.Deserialize<AppConfig>(json, jsonOptions ())
                 // Guard against obviously bad values coming out of JSON.
-                let thresholds =
-                    if isNull cfg.AlertMinutesBefore || cfg.AlertMinutesBefore.Length = 0
-                    then defaults.AlertMinutesBefore
-                    else cfg.AlertMinutesBefore
-                let poll =
-                    if cfg.PollIntervalSeconds <= 0 then defaults.PollIntervalSeconds
-                    else cfg.PollIntervalSeconds
-                { cfg with
-                    AlertMinutesBefore = thresholds
-                    PollIntervalSeconds = poll
-                    ClientId = (if isNull cfg.ClientId then "" else cfg.ClientId)
-                    TenantId = (if isNull cfg.TenantId then "" else cfg.TenantId)
-                    AudioDeviceName = (if isNull cfg.AudioDeviceName then "" else cfg.AudioDeviceName) }
+                sanitize cfg
             with _ ->
                 defaults

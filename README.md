@@ -24,10 +24,32 @@ When a meeting is coming up, the app fires three things simultaneously:
     requires it)
   - Redirect URI `http://localhost` (mobile and desktop applications)
 
+## First-run setup
+
+The first time you launch Meeting Notifier (or any time `clientId`/`tenantId`
+are missing), a small setup dialog asks for the **Application (client) ID**
+and **Directory (tenant) ID** of an Azure AD app registration — no JSON
+editing required. Click **Save** and the app continues straight into
+sign-in.
+
+To get those two values, register a public-client app in the
+[Azure portal](https://portal.azure.com) → *App registrations* → *New
+registration*:
+
+- **Supported account types:** accounts in your organizational directory.
+- **Redirect URI:** *Mobile and desktop applications* → `http://localhost`.
+- **API permissions:** *Microsoft Graph* → *Delegated* → `Calendars.Read`
+  (admin-consented if your tenant requires it).
+
+Copy the **Application (client) ID** and **Directory (tenant) ID** from the
+app's Overview page into the dialog. (`tenantId` also accepts a domain such
+as `contoso.onmicrosoft.com`.)
+
 ## Configuration
 
-Config lives at `%APPDATA%\MeetingNotifier\config.json`. On first run the
-file is created with defaults; edit it and fill in `clientId` / `tenantId`:
+Config lives at `%APPDATA%\MeetingNotifier\config.json`. The first-run dialog
+writes `clientId` / `tenantId` for you; the remaining settings are edited in
+this file directly:
 
 ```json
 {
@@ -41,10 +63,18 @@ file is created with defaults; edit it and fill in `clientId` / `tenantId`:
 
 - `alertMinutesBefore` — array of thresholds. An alert fires when the
   meeting start is that many minutes away (default: 10m and 2m before).
+  Non-positive values are ignored; if none remain the defaults are used.
 - `audioDeviceName` — exact friendly name of the render device to play the
   chime through (e.g. `"Speakers (Realtek(R) Audio)"`). Leave empty to let
   the app auto-pick the first active non-headphone device.
-- `pollIntervalSeconds` — Graph calendarView poll cadence.
+- `pollIntervalSeconds` — Graph calendarView poll cadence. It is
+  automatically capped so it's never slower than the smallest alert window
+  (e.g. a 2-minute threshold forces a poll of at most 120s), otherwise a
+  tick could step over the window and miss the alert.
+
+Configuration is read once at launch, so **edits only take effect after you
+restart Meeting Notifier**. The Settings menu item reminds you of this when
+it opens the file.
 
 ## Build and run
 
@@ -56,6 +86,31 @@ dotnet run --project src/MeetingNotifier
 First launch opens the system browser for delegated OAuth sign-in. The
 MSAL token cache at `%APPDATA%\MeetingNotifier\msal.cache` persists the
 refresh token (DPAPI-protected), so subsequent launches are silent.
+
+## Install & auto-update
+
+Released builds are packaged with [Velopack](https://velopack.io/). Grab
+`MeetingNotifier-win-Setup.exe` from the
+[Releases](https://github.com/daniellittledev/meeting-notifier/releases) page
+and run it — it's a per-user install (no admin prompt) and registers the
+Start-Menu shortcut needed for toasts.
+
+The app checks GitHub Releases for a newer version on startup and downloads
+it in the background; when one is ready the tray menu shows **Restart to
+apply update**. You can also trigger a check manually via **Check for
+updates…**. Updates are skipped automatically when running an uninstalled
+build (e.g. `dotnet run`).
+
+## Releasing
+
+Releases are cut by pushing a `vX.Y.Z` tag; the `release.yml` workflow
+publishes a self-contained `win-x64` build, packs it with Velopack, and
+uploads the installer + delta packages to a GitHub Release:
+
+```powershell
+git tag v1.0.0
+git push origin v1.0.0
+```
 
 ## Run at startup
 
@@ -84,11 +139,14 @@ Program.fs          entry point, wiring
   └─ TrayApp.fs           NotifyIcon + polling loop + UI marshalling
        ├─ Config.fs            %APPDATA%\...\config.json load/save
        ├─ Auth.fs              MSAL public client + persistent cache
+       ├─ GraphParsing.fs      PURE: Graph JSON → domain Meeting (+ paging)
        ├─ GraphClient.fs       ICalendarSource + Graph implementation
        ├─ AlertEngine.fs       PURE: which alerts fire this tick
        ├─ Notifications.fs     Toast + FlashWindowEx + NAudio
        ├─ AumidRegistration.fs Start-Menu .lnk with AUMID for toasts
-       └─ Startup.fs           HKCU Run key toggle
+       ├─ Startup.fs           HKCU Run key toggle
+       ├─ Updater.fs           Velopack self-update against GitHub Releases
+       └─ SetupDialog.fs       First-run WinForms dialog for clientId/tenantId
   └─ Domain.fs              shared records and DUs
 ```
 

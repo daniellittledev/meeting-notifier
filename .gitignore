@@ -28,6 +28,9 @@ project.lock.json
 project.fragment.lock.json
 artifacts/
 
+# Publish output (Velopack release output lands in Releases/, covered above)
+publish/
+
 # ASP.NET Scaffolding
 ScaffoldingReadMe.txt
 

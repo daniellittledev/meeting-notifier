@@ -19,15 +19,18 @@ module TrayApp =
     [<Literal>]
     let private aumid = "MeetingNotifier.App"
 
-    let private loadTrayIcon () : Icon =
+    /// Returns the tray icon plus a flag for whether we own it (and so must
+    /// dispose it). The shared `SystemIcons.Application` must never be
+    /// disposed, so the fallback is reported as not-owned.
+    let private loadTrayIcon () : Icon * bool =
         let asm = Assembly.GetExecutingAssembly()
         // Prefer the embedded icon if present, otherwise fall back to the
         // system application icon so the tray isn't empty.
         let onDisk =
             let dir = Path.GetDirectoryName asm.Location
             Path.Combine(dir, "appicon.ico")
-        if File.Exists onDisk then new Icon(onDisk)
-        else SystemIcons.Application
+        if File.Exists onDisk then new Icon(onDisk), true
+        else SystemIcons.Application, false
 
     type TrayContext(cfg: Config.AppConfig,
                      source: GraphClient.ICalendarSource,
@@ -37,14 +40,19 @@ module TrayApp =
 
         let mutable state = AlertState.empty
         let mutable lastSnapshot : Meeting list = []
+        // A downloaded, ready-to-apply update, once a check has found one.
+        let mutable preparedUpdate
+            : (Velopack.UpdateManager * Velopack.UpdateInfo) option = None
         let stateLock = obj()
         let cts = new CancellationTokenSource()
         let notifyIcon = new NotifyIcon()
+        let trayIcon, ownsTrayIcon = loadTrayIcon ()
         let menu = new ContextMenuStrip()
         let upcomingItem = new ToolStripMenuItem("Upcoming meetings")
         let startupItem = new ToolStripMenuItem("Run at startup")
         let settingsItem = new ToolStripMenuItem("Settings")
         let reauthItem = new ToolStripMenuItem("Re-authenticate...")
+        let updateItem = new ToolStripMenuItem("Check for updates...")
         let exitItem = new ToolStripMenuItem("Exit")
 
         let postToUi (f: unit -> unit) =
@@ -96,12 +104,69 @@ module TrayApp =
                 // Ensure the file exists before asking the shell to open it.
                 if not (File.Exists Config.configPath) then
                     Config.save cfg
+                // Config is read once at launch, so changes only take effect
+                // on restart. Say so up front rather than leaving the user to
+                // wonder why their edit did nothing.
+                MessageBox.Show(
+                    "Edit and save config.json, then restart Meeting Notifier "
+                    + "for the changes to take effect.",
+                    "Meeting Notifier — settings",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information)
+                |> ignore
                 Process.Start(
                     ProcessStartInfo(Config.configPath, UseShellExecute = true))
                 |> ignore
             with ex ->
                 MessageBox.Show(sprintf "Could not open config: %s" ex.Message)
                 |> ignore
+
+        // Mark the menu so the user can apply an update we've already
+        // fetched in the background; the next click applies and restarts.
+        let markUpdateReady () =
+            updateItem.Text <- "Restart to apply update"
+
+        let applyPreparedUpdate () =
+            match preparedUpdate with
+            | Some(mgr, info) ->
+                try Updater.applyAndRestart mgr info
+                with ex -> eprintfn "apply update failed: %s" ex.Message
+            | None -> ()
+
+        // Manual "Check for updates" flow: check + download, then offer to
+        // restart. `interactive` controls whether we tell the user when
+        // there's nothing to do (we stay quiet on the background check).
+        let runUpdateCheck (interactive: bool) =
+            if interactive then
+                updateItem.Enabled <- false
+                updateItem.Text <- "Checking for updates..."
+            Async.Start(async {
+                let! result = Updater.checkForUpdate ()
+                postToUi (fun () ->
+                    updateItem.Enabled <- true
+                    match result with
+                    | Some _ ->
+                        preparedUpdate <- result
+                        markUpdateReady ()
+                        if interactive then
+                            let restart =
+                                MessageBox.Show(
+                                    "An update was downloaded. Restart now to "
+                                    + "apply it?",
+                                    "Meeting Notifier — update",
+                                    MessageBoxButtons.YesNo,
+                                    MessageBoxIcon.Information)
+                            if restart = DialogResult.Yes then applyPreparedUpdate ()
+                    | None ->
+                        if interactive then
+                            updateItem.Text <- "Check for updates..."
+                            MessageBox.Show(
+                                "You're running the latest version.",
+                                "Meeting Notifier — update",
+                                MessageBoxButtons.OK,
+                                MessageBoxIcon.Information)
+                            |> ignore)
+            }, cts.Token)
 
         let handleAlertAction (pa: PendingAlert) (action: AlertAction) =
             match action with
@@ -141,7 +206,7 @@ module TrayApp =
                             p)
                     for pa in pending do
                         postToUi (fun () ->
-                            Notifications.fireAlert aumid cfg pa
+                            Notifications.fireAlert aumid cfg postToUi pa
                                 (handleAlertAction pa))
             }
 
@@ -196,6 +261,11 @@ module TrayApp =
                         eprintfn "re-auth failed: %s" ex.Message
                 }))
 
+            updateItem.Click.Add(fun _ ->
+                match preparedUpdate with
+                | Some _ -> applyPreparedUpdate ()
+                | None -> runUpdateCheck true)
+
             exitItem.Click.Add(fun _ ->
                 cts.Cancel()
                 notifyIcon.Visible <- false
@@ -206,10 +276,11 @@ module TrayApp =
             menu.Items.Add(startupItem :> ToolStripItem) |> ignore
             menu.Items.Add(settingsItem :> ToolStripItem) |> ignore
             menu.Items.Add(reauthItem :> ToolStripItem) |> ignore
+            menu.Items.Add(updateItem :> ToolStripItem) |> ignore
             menu.Items.Add(new ToolStripSeparator() :> ToolStripItem) |> ignore
             menu.Items.Add(exitItem :> ToolStripItem) |> ignore
 
-            notifyIcon.Icon <- loadTrayIcon ()
+            notifyIcon.Icon <- trayIcon
             notifyIcon.Text <- "Meeting Notifier"
             notifyIcon.Visible <- true
             notifyIcon.ContextMenuStrip <- menu
@@ -218,10 +289,15 @@ module TrayApp =
             // Kick off the polling loop.
             Async.Start(pollLoop (), cts.Token)
 
+            // Quietly look for an update in the background; if one is found
+            // it's downloaded and the menu flips to "Restart to apply update".
+            runUpdateCheck false
+
         override this.Dispose(disposing: bool) =
             if disposing then
                 try cts.Cancel() with _ -> ()
                 try notifyIcon.Dispose() with _ -> ()
+                if ownsTrayIcon then (try trayIcon.Dispose() with _ -> ())
                 try menu.Dispose() with _ -> ()
                 try cts.Dispose() with _ -> ()
             base.Dispose(disposing)

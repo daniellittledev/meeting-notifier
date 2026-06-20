@@ -1,0 +1,63 @@
+name: Release
+
+# Tag a commit `vX.Y.Z` and push the tag to cut a release:
+#   git tag v1.0.0 && git push origin v1.0.0
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Derive version from tag
+        id: version
+        shell: bash
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish (self-contained win-x64)
+        run: >
+          dotnet publish src/MeetingNotifier/MeetingNotifier.fsproj
+          -c Release -r win-x64 --self-contained true
+          -p:Version=${{ steps.version.outputs.version }}
+          -o publish
+
+      - name: Install Velopack CLI
+        run: dotnet tool install -g vpk --version 1.2.0
+
+      # Pull existing releases so Velopack can build delta packages. Tolerate
+      # failure: on the very first release there's nothing to download.
+      - name: Download previous releases
+        continue-on-error: true
+        run: vpk download github --repoUrl https://github.com/${{ github.repository }} --token ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pack
+        run: >
+          vpk pack
+          -u MeetingNotifier
+          -v ${{ steps.version.outputs.version }}
+          -p publish
+          -e MeetingNotifier.exe
+          -i src/MeetingNotifier/appicon.ico
+          --packTitle "Meeting Notifier"
+
+      - name: Upload to GitHub Releases
+        run: >
+          vpk upload github
+          --repoUrl https://github.com/${{ github.repository }}
+          --publish
+          --releaseName "Meeting Notifier ${{ steps.version.outputs.version }}"
+          --tag ${{ github.ref_name }}
+          --token ${{ secrets.GITHUB_TOKEN }}

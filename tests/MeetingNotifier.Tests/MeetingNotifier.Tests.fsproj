@@ -8,16 +8,22 @@
   </PropertyGroup>
 
   <!--
-    F# cares about compile order. Pull Domain.fs and AlertEngine.fs from
-    the main project as source-linked files so the AlertEngine tests can
-    reference them without bringing in the Windows-only TFM of the app.
+    F# cares about compile order. Pull the platform-agnostic source files
+    from the main project as source-linked files so their logic can be
+    tested without bringing in the Windows-only TFM of the app.
   -->
   <ItemGroup>
     <Compile Include="..\..\src\MeetingNotifier\Domain.fs"
              Link="_src\Domain.fs" />
+    <Compile Include="..\..\src\MeetingNotifier\Config.fs"
+             Link="_src\Config.fs" />
+    <Compile Include="..\..\src\MeetingNotifier\GraphParsing.fs"
+             Link="_src\GraphParsing.fs" />
     <Compile Include="..\..\src\MeetingNotifier\AlertEngine.fs"
              Link="_src\AlertEngine.fs" />
     <Compile Include="AlertEngineTests.fs" />
+    <Compile Include="ConfigTests.fs" />
+    <Compile Include="GraphParsingTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
@@ -26,6 +32,7 @@
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
     <PackageReference Include="FsUnit.xUnit" Version="6.0.0" />
+    <PackageReference Include="FSharp.JsonSerializer" Version="0.0.3" />
   </ItemGroup>
 
 </Project>

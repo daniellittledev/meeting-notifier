@@ -83,7 +83,10 @@ module Notifications =
 
         /// Extract `alert.wav` from embedded resources into a temp file so
         /// NAudio's WaveFileReader can stream from disk (simpler than
-        /// wrapping the stream in a lifetime-managed provider).
+        /// wrapping the stream in a lifetime-managed provider). The temp
+        /// file name is stamped with the assembly version so a new build
+        /// (potentially shipping a different chime) doesn't keep replaying a
+        /// stale extraction left behind by an older version.
         let private embeddedWavPath () =
             let asm = Assembly.GetExecutingAssembly()
             let resourceName =
@@ -92,8 +95,14 @@ module Notifications =
             match resourceName with
             | None -> None
             | Some name ->
+                let version =
+                    match asm.GetName().Version with
+                    | null -> "0"
+                    | v -> string v
                 let tempPath =
-                    Path.Combine(Path.GetTempPath(), "meeting-notifier-alert.wav")
+                    Path.Combine(
+                        Path.GetTempPath(),
+                        sprintf "meeting-notifier-alert-%s.wav" version)
                 if not (File.Exists tempPath) then
                     use rs = asm.GetManifestResourceStream(name)
                     use fs = File.Create tempPath
@@ -116,7 +125,7 @@ module Notifications =
                                 new WasapiOut(device, AudioClientShareMode.Shared,
                                               true, 100)
                             out.Init(reader)
-                            let waiter = new System.Threading.ManualResetEventSlim(false)
+                            use waiter = new System.Threading.ManualResetEventSlim(false)
                             out.PlaybackStopped.Add(fun _ -> waiter.Set())
                             out.Play()
                             waiter.Wait(TimeSpan.FromSeconds 10.0) |> ignore
@@ -138,16 +147,22 @@ module Notifications =
                  .Replace("\"", "&quot;")
                  .Replace("'", "&apos;")
 
-        /// Human-readable "in 10 minutes" style hint for the toast body.
-        let private leadLabel (AlertThreshold mins) =
+        /// Human-readable "in 10 minutes" style hint for the toast body,
+        /// computed from the *actual* time until the meeting starts rather
+        /// than the threshold that triggered the alert. When the app starts
+        /// late both thresholds can fire on the same tick, so a threshold-
+        /// derived label would claim "in 10 minutes" for a meeting that's
+        /// actually one minute out.
+        let private leadLabel (lead: TimeSpan) =
+            let mins = max 1 (int (Math.Round lead.TotalMinutes))
             if mins = 1 then "in 1 minute"
             elif mins < 60 then sprintf "in %d minutes" mins
             else sprintf "in %dh %dm" (mins / 60) (mins % 60)
 
-        let private buildXml (pa: PendingAlert) =
+        let private buildXml (now: DateTimeOffset) (pa: PendingAlert) =
             let m = pa.Meeting
             let localStart = m.Start.ToLocalTime().ToString("t") // short time
-            let lead = leadLabel pa.Threshold
+            let lead = leadLabel (m.Start - now)
             let locationLine =
                 match m.JoinUrl, m.Location with
                 | Some _, _ -> "Teams meeting"
@@ -213,9 +228,18 @@ module Notifications =
                 Snooze mins
             | _ -> Dismiss
 
-        let show (aumid: string) (pa: PendingAlert) (onAction: AlertAction -> unit) =
+        /// Show the toast and return a function that programmatically hides
+        /// it again — used so that acting on the alert through another
+        /// channel (the flashing window) takes the toast down too. Returns a
+        /// no-op on failure.
+        let show
+            (now: DateTimeOffset)
+            (aumid: string)
+            (pa: PendingAlert)
+            (onAction: AlertAction -> unit)
+            : (unit -> unit) =
             try
-                let xmlText = buildXml pa
+                let xmlText = buildXml now pa
                 let doc = XmlDocument()
                 doc.LoadXml xmlText
                 let toast = ToastNotification(doc)
@@ -231,9 +255,12 @@ module Notifications =
                 toast.add_Dismissed(
                     TypedEventHandler<ToastNotification, ToastDismissedEventArgs>(fun _ _ ->
                         onAction Dismiss))
-                ToastNotificationManager.CreateToastNotifier(aumid).Show(toast)
+                let notifier = ToastNotificationManager.CreateToastNotifier(aumid)
+                notifier.Show(toast)
+                (fun () -> try notifier.Hide(toast) with _ -> ())
             with ex ->
                 eprintfn "Toast failed: %s" ex.Message
+                (fun () -> ())
 
     // ============ Flashing alert form ============
 
@@ -271,18 +298,44 @@ module Notifications =
     /// Fire all three alerts for a pending alert. Toast and flash run on
     /// the UI thread; audio runs on a worker thread so we don't block the
     /// polling loop or the message pump.
+    ///
+    /// The toast and the flashing window are coordinated: the first action
+    /// taken through *either* channel (Join/Snooze on the toast, or closing
+    /// the window) runs `onAction` exactly once and then tears the other
+    /// channel down, so a snoozed/joined alert doesn't leave an orphaned
+    /// always-on-top window flashing. `postToUi` marshals the completion
+    /// onto the UI thread because WinRT toast events arrive on a pool
+    /// thread and the window can only be touched from the UI thread.
     let fireAlert
         (aumid: string)
         (cfg: Config.AppConfig)
+        (postToUi: (unit -> unit) -> unit)
         (pa: PendingAlert)
         (onAction: AlertAction -> unit)
         =
         // Audio is independent and cheap to kick off first.
         Audio.play cfg
+
+        let now = DateTimeOffset.Now
+        let mutable handled = false
+        let hideToast = ref (fun () -> ())
+        let theForm = ref Unchecked.defaultof<AlertForm>
+
+        let complete (action: AlertAction) =
+            postToUi (fun () ->
+                if not handled then
+                    handled <- true
+                    onAction action
+                    hideToast.Value ()
+                    let f = theForm.Value
+                    if not (obj.ReferenceEquals(f, null)) then
+                        try f.Close() with _ -> ())
+
         // Toast.
-        Toast.show aumid pa onAction
-        // Flashing form — show then flash. Close hook is the engine's
-        // dismiss signal.
-        let form = new AlertForm(pa, fun () -> onAction Dismiss)
+        hideToast.Value <- Toast.show now aumid pa complete
+        // Flashing form — show then flash. Closing it routes through the
+        // same single-shot completion.
+        let form = new AlertForm(pa, fun () -> complete Dismiss)
+        theForm.Value <- form
         form.Show()
         Taskbar.flash form
