@@ -4,6 +4,7 @@ open System
 open System.Globalization
 open System.Text.Json
 open System.Text.Json.Serialization
+open System.Text.Json.Serialization.Custom
 open MeetingNotifier.Domain
 
 /// Pure parsing of the Microsoft Graph /me/calendarView payload into domain
@@ -46,7 +47,12 @@ module GraphParsing =
 
     let jsonOpts =
         let o = JsonSerializerOptions(PropertyNameCaseInsensitive = true)
-        o.Converters.Add(JsonFSharpConverter())
+        // The CLIMutable DTOs deserialise via System.Text.Json's default
+        // object handler; OptionJsonConverter maps a present value to Some and
+        // null to None. An absent property (e.g. the common single-page case
+        // with no @odata.nextLink) simply stays at its default, which for an
+        // option is null = None.
+        o.Converters.Add(OptionJsonConverter())
         o
 
     /// Parse Graph's ISO-ish date string + IANA zone back into a UTC

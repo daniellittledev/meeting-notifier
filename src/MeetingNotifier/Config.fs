@@ -4,6 +4,7 @@ open System
 open System.IO
 open System.Text.Json
 open System.Text.Json.Serialization
+open System.Text.Json.Serialization.Custom
 
 /// Loads and persists the on-disk JSON configuration at
 /// `%APPDATA%\MeetingNotifier\config.json`.
@@ -39,7 +40,7 @@ module Config =
                 PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
                 PropertyNameCaseInsensitive = true
             )
-        opts.Converters.Add(JsonFSharpConverter())
+        opts.Converters.Add(OptionJsonConverter())
         opts
 
     let private ensureDir () =
