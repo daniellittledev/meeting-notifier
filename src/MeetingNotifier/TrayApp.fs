@@ -32,6 +32,24 @@ module TrayApp =
         if File.Exists onDisk then new Icon(onDisk), true
         else SystemIcons.Application, false
 
+    /// Whether the background poll is currently reaching the calendar source.
+    /// Surfaced as a coloured indicator at the top of the tray menu so the
+    /// user can tell at a glance that meetings are actually being tracked.
+    type private ConnectionStatus =
+        | Connecting
+        | Connected
+        | Disconnected of reason: string
+
+    /// A small filled circle used as the status glyph in the menu. One
+    /// bitmap is created per colour and reused for the tray's lifetime.
+    let private makeDot (color: Color) : Bitmap =
+        let bmp = new Bitmap(12, 12)
+        use g = Graphics.FromImage bmp
+        g.SmoothingMode <- Drawing2D.SmoothingMode.AntiAlias
+        use brush = new SolidBrush(color)
+        g.FillEllipse(brush, 1, 1, 10, 10)
+        bmp
+
     type TrayContext(cfg: Config.AppConfig,
                      source: GraphClient.ICalendarSource,
                      tokenProvider: Auth.TokenProvider,
@@ -48,6 +66,10 @@ module TrayApp =
         let notifyIcon = new NotifyIcon()
         let trayIcon, ownsTrayIcon = loadTrayIcon ()
         let menu = new ContextMenuStrip()
+        let statusItem = new ToolStripMenuItem("Connecting...")
+        let connectedDot = makeDot (Color.FromArgb(0x2E, 0xCC, 0x71))
+        let connectingDot = makeDot (Color.FromArgb(0xF1, 0xC4, 0x0F))
+        let disconnectedDot = makeDot (Color.FromArgb(0xE7, 0x4C, 0x3C))
         let upcomingItem = new ToolStripMenuItem("Upcoming meetings")
         let startupItem = new ToolStripMenuItem("Run at startup")
         let settingsItem = new ToolStripMenuItem("Settings")
@@ -57,6 +79,20 @@ module TrayApp =
 
         let postToUi (f: unit -> unit) =
             uiContext.Post(SendOrPostCallback(fun _ -> f ()), null)
+
+        // Reflect the latest poll outcome in the status indicator and the
+        // tray-icon tooltip. Touches WinForms controls, so it must run on the
+        // UI thread — background callers marshal through postToUi.
+        let setConnection (status: ConnectionStatus) =
+            let text, dot, tip =
+                match status with
+                | Connecting -> "Connecting...", connectingDot, null
+                | Connected -> "Connected", connectedDot, null
+                | Disconnected reason -> "Not connected", disconnectedDot, reason
+            statusItem.Text <- text
+            statusItem.Image <- dot
+            statusItem.ToolTipText <- tip
+            notifyIcon.Text <- sprintf "Meeting Notifier — %s" text
 
         let snapshotMeetings () =
             lock stateLock (fun () -> lastSnapshot)
@@ -188,7 +224,9 @@ module TrayApp =
                 match result with
                 | Error msg ->
                     eprintfn "calendarView failed: %s" msg
+                    postToUi (fun () -> setConnection (Disconnected msg))
                 | Ok meetings ->
+                    postToUi (fun () -> setConnection Connected)
                     let thresholds =
                         cfg.AlertMinutesBefore
                         |> Array.map AlertThreshold
@@ -239,6 +277,15 @@ module TrayApp =
 
         // ----- Construction -----
         do
+            // The indicator doubles as a manual refresh: clicking it forces an
+            // immediate poll instead of waiting for the next scheduled tick.
+            statusItem.Click.Add(fun _ ->
+                setConnection Connecting
+                Async.Start(async {
+                    try do! runTick ()
+                    with ex -> eprintfn "manual refresh failed: %s" ex.Message
+                }, cts.Token))
+
             upcomingItem.DropDownOpening.Add(fun _ -> refreshUpcomingMenu ())
 
             startupItem.Click.Add(fun _ ->
@@ -271,6 +318,8 @@ module TrayApp =
                 notifyIcon.Visible <- false
                 Application.Exit())
 
+            menu.Items.Add(statusItem :> ToolStripItem) |> ignore
+            menu.Items.Add(new ToolStripSeparator() :> ToolStripItem) |> ignore
             menu.Items.Add(upcomingItem :> ToolStripItem) |> ignore
             menu.Items.Add(new ToolStripSeparator() :> ToolStripItem) |> ignore
             menu.Items.Add(startupItem :> ToolStripItem) |> ignore
@@ -281,10 +330,12 @@ module TrayApp =
             menu.Items.Add(exitItem :> ToolStripItem) |> ignore
 
             notifyIcon.Icon <- trayIcon
-            notifyIcon.Text <- "Meeting Notifier"
             notifyIcon.Visible <- true
             notifyIcon.ContextMenuStrip <- menu
             refreshStartupCheckmark ()
+            // Seed the indicator (glyph + tray tooltip) until the first tick
+            // resolves it to Connected / Not connected.
+            setConnection Connecting
 
             // Kick off the polling loop.
             Async.Start(pollLoop (), cts.Token)
@@ -299,5 +350,8 @@ module TrayApp =
                 try notifyIcon.Dispose() with _ -> ()
                 if ownsTrayIcon then (try trayIcon.Dispose() with _ -> ())
                 try menu.Dispose() with _ -> ()
+                try connectedDot.Dispose() with _ -> ()
+                try connectingDot.Dispose() with _ -> ()
+                try disconnectedDot.Dispose() with _ -> ()
                 try cts.Dispose() with _ -> ()
             base.Dispose(disposing)
