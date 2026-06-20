@@ -24,10 +24,32 @@ When a meeting is coming up, the app fires three things simultaneously:
     requires it)
   - Redirect URI `http://localhost` (mobile and desktop applications)
 
+## First-run setup
+
+The first time you launch Meeting Notifier (or any time `clientId`/`tenantId`
+are missing), a small setup dialog asks for the **Application (client) ID**
+and **Directory (tenant) ID** of an Azure AD app registration — no JSON
+editing required. Click **Save** and the app continues straight into
+sign-in.
+
+To get those two values, register a public-client app in the
+[Azure portal](https://portal.azure.com) → *App registrations* → *New
+registration*:
+
+- **Supported account types:** accounts in your organizational directory.
+- **Redirect URI:** *Mobile and desktop applications* → `http://localhost`.
+- **API permissions:** *Microsoft Graph* → *Delegated* → `Calendars.Read`
+  (admin-consented if your tenant requires it).
+
+Copy the **Application (client) ID** and **Directory (tenant) ID** from the
+app's Overview page into the dialog. (`tenantId` also accepts a domain such
+as `contoso.onmicrosoft.com`.)
+
 ## Configuration
 
-Config lives at `%APPDATA%\MeetingNotifier\config.json`. On first run the
-file is created with defaults; edit it and fill in `clientId` / `tenantId`:
+Config lives at `%APPDATA%\MeetingNotifier\config.json`. The first-run dialog
+writes `clientId` / `tenantId` for you; the remaining settings are edited in
+this file directly:
 
 ```json
 {
@@ -123,7 +145,8 @@ Program.fs          entry point, wiring
        ├─ Notifications.fs     Toast + FlashWindowEx + NAudio
        ├─ AumidRegistration.fs Start-Menu .lnk with AUMID for toasts
        ├─ Startup.fs           HKCU Run key toggle
-       └─ Updater.fs           Velopack self-update against GitHub Releases
+       ├─ Updater.fs           Velopack self-update against GitHub Releases
+       └─ SetupDialog.fs       First-run WinForms dialog for clientId/tenantId
   └─ Domain.fs              shared records and DUs
 ```
 

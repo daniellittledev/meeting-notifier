@@ -20,26 +20,27 @@ module Program =
         Application.SetCompatibleTextRenderingDefault(false)
         Application.SetHighDpiMode(HighDpiMode.SystemAware) |> ignore
 
-        let cfg = Config.loadOrDefault ()
+        let loaded = Config.loadOrDefault ()
 
-        if String.IsNullOrWhiteSpace cfg.ClientId
-           || String.IsNullOrWhiteSpace cfg.TenantId then
-            MessageBox.Show(
-                sprintf
-                    "Please set clientId and tenantId in:\n%s\n\nMeeting Notifier will now open the config and exit."
-                    Config.configPath,
-                "Meeting Notifier — first-run setup",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Information)
-            |> ignore
-            try
-                System.Diagnostics.Process.Start(
-                    System.Diagnostics.ProcessStartInfo(
-                        Config.configPath, UseShellExecute = true))
-                |> ignore
-            with _ -> ()
-            0
-        else
+        // First run (or a config still missing its auth IDs): collect the
+        // Azure AD values via a dialog rather than making the user hand-edit
+        // JSON. None means the user cancelled, so there's nothing to run.
+        let cfgOpt =
+            if String.IsNullOrWhiteSpace loaded.ClientId
+               || String.IsNullOrWhiteSpace loaded.TenantId then
+                match SetupDialog.show loaded with
+                | Some(clientId, tenantId) ->
+                    let updated =
+                        { loaded with ClientId = clientId; TenantId = tenantId }
+                    Config.save updated
+                    Some updated
+                | None -> None
+            else
+                Some loaded
+
+        match cfgOpt with
+        | None -> 0
+        | Some cfg ->
             // Register the AUMID shortcut so toast notifications work.
             AumidRegistration.ensure "MeetingNotifier.App"
 

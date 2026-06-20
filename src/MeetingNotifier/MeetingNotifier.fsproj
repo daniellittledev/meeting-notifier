@@ -29,6 +29,7 @@
     <Compile Include="Notifications.fs" />
     <Compile Include="Startup.fs" />
     <Compile Include="Updater.fs" />
+    <Compile Include="SetupDialog.fs" />
     <Compile Include="TrayApp.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
