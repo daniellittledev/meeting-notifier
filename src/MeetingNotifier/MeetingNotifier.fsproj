@@ -11,6 +11,9 @@
     <LangVersion>latest</LangVersion>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
     <Nullable>enable</Nullable>
+    <!-- Baseline version for local/dev builds; releases are versioned from
+         the git tag by the release workflow. -->
+    <Version>0.1.0</Version>
     <!-- Keep a single-file deployable exe for the installer path -->
     <SelfContained>false</SelfContained>
   </PropertyGroup>
@@ -25,6 +28,7 @@
     <Compile Include="AumidRegistration.fs" />
     <Compile Include="Notifications.fs" />
     <Compile Include="Startup.fs" />
+    <Compile Include="Updater.fs" />
     <Compile Include="TrayApp.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
@@ -41,6 +45,7 @@
     <PackageReference Include="Microsoft.Identity.Client.Extensions.Msal" Version="4.66.2" />
     <PackageReference Include="NAudio" Version="2.2.1" />
     <PackageReference Include="FSharp.SystemTextJson" Version="1.3.13" />
+    <PackageReference Include="Velopack" Version="1.2.0" />
   </ItemGroup>
 
 </Project>

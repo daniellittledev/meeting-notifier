@@ -11,6 +11,11 @@ module Program =
 
     [<EntryPoint; STAThread>]
     let main _ =
+        // Must run before anything else: during install/update/uninstall
+        // Velopack invokes the exe with hook arguments, services them, and
+        // exits. On a normal launch this is a cheap no-op.
+        Velopack.VelopackApp.Build().Run()
+
         Application.EnableVisualStyles()
         Application.SetCompatibleTextRenderingDefault(false)
         Application.SetHighDpiMode(HighDpiMode.SystemAware) |> ignore

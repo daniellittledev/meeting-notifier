@@ -40,6 +40,9 @@ module TrayApp =
 
         let mutable state = AlertState.empty
         let mutable lastSnapshot : Meeting list = []
+        // A downloaded, ready-to-apply update, once a check has found one.
+        let mutable preparedUpdate
+            : (Velopack.UpdateManager * Velopack.UpdateInfo) option = None
         let stateLock = obj()
         let cts = new CancellationTokenSource()
         let notifyIcon = new NotifyIcon()
@@ -49,6 +52,7 @@ module TrayApp =
         let startupItem = new ToolStripMenuItem("Run at startup")
         let settingsItem = new ToolStripMenuItem("Settings")
         let reauthItem = new ToolStripMenuItem("Re-authenticate...")
+        let updateItem = new ToolStripMenuItem("Check for updates...")
         let exitItem = new ToolStripMenuItem("Exit")
 
         let postToUi (f: unit -> unit) =
@@ -116,6 +120,53 @@ module TrayApp =
             with ex ->
                 MessageBox.Show(sprintf "Could not open config: %s" ex.Message)
                 |> ignore
+
+        // Mark the menu so the user can apply an update we've already
+        // fetched in the background; the next click applies and restarts.
+        let markUpdateReady () =
+            updateItem.Text <- "Restart to apply update"
+
+        let applyPreparedUpdate () =
+            match preparedUpdate with
+            | Some(mgr, info) ->
+                try Updater.applyAndRestart mgr info
+                with ex -> eprintfn "apply update failed: %s" ex.Message
+            | None -> ()
+
+        // Manual "Check for updates" flow: check + download, then offer to
+        // restart. `interactive` controls whether we tell the user when
+        // there's nothing to do (we stay quiet on the background check).
+        let runUpdateCheck (interactive: bool) =
+            if interactive then
+                updateItem.Enabled <- false
+                updateItem.Text <- "Checking for updates..."
+            Async.Start(async {
+                let! result = Updater.checkForUpdate ()
+                postToUi (fun () ->
+                    updateItem.Enabled <- true
+                    match result with
+                    | Some _ ->
+                        preparedUpdate <- result
+                        markUpdateReady ()
+                        if interactive then
+                            let restart =
+                                MessageBox.Show(
+                                    "An update was downloaded. Restart now to "
+                                    + "apply it?",
+                                    "Meeting Notifier — update",
+                                    MessageBoxButtons.YesNo,
+                                    MessageBoxIcon.Information)
+                            if restart = DialogResult.Yes then applyPreparedUpdate ()
+                    | None ->
+                        if interactive then
+                            updateItem.Text <- "Check for updates..."
+                            MessageBox.Show(
+                                "You're running the latest version.",
+                                "Meeting Notifier — update",
+                                MessageBoxButtons.OK,
+                                MessageBoxIcon.Information)
+                            |> ignore)
+            }, cts.Token)
 
         let handleAlertAction (pa: PendingAlert) (action: AlertAction) =
             match action with
@@ -210,6 +261,11 @@ module TrayApp =
                         eprintfn "re-auth failed: %s" ex.Message
                 }))
 
+            updateItem.Click.Add(fun _ ->
+                match preparedUpdate with
+                | Some _ -> applyPreparedUpdate ()
+                | None -> runUpdateCheck true)
+
             exitItem.Click.Add(fun _ ->
                 cts.Cancel()
                 notifyIcon.Visible <- false
@@ -220,6 +276,7 @@ module TrayApp =
             menu.Items.Add(startupItem :> ToolStripItem) |> ignore
             menu.Items.Add(settingsItem :> ToolStripItem) |> ignore
             menu.Items.Add(reauthItem :> ToolStripItem) |> ignore
+            menu.Items.Add(updateItem :> ToolStripItem) |> ignore
             menu.Items.Add(new ToolStripSeparator() :> ToolStripItem) |> ignore
             menu.Items.Add(exitItem :> ToolStripItem) |> ignore
 
@@ -231,6 +288,10 @@ module TrayApp =
 
             // Kick off the polling loop.
             Async.Start(pollLoop (), cts.Token)
+
+            // Quietly look for an update in the background; if one is found
+            // it's downloaded and the menu flips to "Restart to apply update".
+            runUpdateCheck false
 
         override this.Dispose(disposing: bool) =
             if disposing then

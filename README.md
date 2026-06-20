@@ -65,6 +65,31 @@ First launch opens the system browser for delegated OAuth sign-in. The
 MSAL token cache at `%APPDATA%\MeetingNotifier\msal.cache` persists the
 refresh token (DPAPI-protected), so subsequent launches are silent.
 
+## Install & auto-update
+
+Released builds are packaged with [Velopack](https://velopack.io/). Grab
+`MeetingNotifier-win-Setup.exe` from the
+[Releases](https://github.com/daniellittledev/meeting-notifier/releases) page
+and run it — it's a per-user install (no admin prompt) and registers the
+Start-Menu shortcut needed for toasts.
+
+The app checks GitHub Releases for a newer version on startup and downloads
+it in the background; when one is ready the tray menu shows **Restart to
+apply update**. You can also trigger a check manually via **Check for
+updates…**. Updates are skipped automatically when running an uninstalled
+build (e.g. `dotnet run`).
+
+## Releasing
+
+Releases are cut by pushing a `vX.Y.Z` tag; the `release.yml` workflow
+publishes a self-contained `win-x64` build, packs it with Velopack, and
+uploads the installer + delta packages to a GitHub Release:
+
+```powershell
+git tag v1.0.0
+git push origin v1.0.0
+```
+
 ## Run at startup
 
 Right-click the tray icon → **Run at startup** (toggle). This writes
@@ -97,7 +122,8 @@ Program.fs          entry point, wiring
        ├─ AlertEngine.fs       PURE: which alerts fire this tick
        ├─ Notifications.fs     Toast + FlashWindowEx + NAudio
        ├─ AumidRegistration.fs Start-Menu .lnk with AUMID for toasts
-       └─ Startup.fs           HKCU Run key toggle
+       ├─ Startup.fs           HKCU Run key toggle
+       └─ Updater.fs           Velopack self-update against GitHub Releases
   └─ Domain.fs              shared records and DUs
 ```
 
