@@ -1,0 +1,15 @@
+<Grid xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Grid.RowDefinitions>
+    <RowDefinition Height="*" />
+    <RowDefinition Height="Auto" />
+  </Grid.RowDefinitions>
+  <ScrollViewer Grid.Row="0" x:Name="RowsScroll" VerticalScrollBarVisibility="Auto">
+    <StackPanel x:Name="RowsPanel" Margin="0,2,0,8" />
+  </ScrollViewer>
+  <Border Grid.Row="1" Background="{DynamicResource HeaderBg}" Padding="10,8">
+    <Button x:Name="DismissAllButton" Content="Dismiss all"
+            HorizontalAlignment="Right" Padding="14,6"
+            Foreground="{DynamicResource TextBrush}" />
+  </Border>
+</Grid>
