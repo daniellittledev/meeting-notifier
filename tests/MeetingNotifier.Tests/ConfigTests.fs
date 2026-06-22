@@ -9,7 +9,10 @@ let private baseCfg : Config.AppConfig =
       TenantId = "tid"
       AlertMinutesBefore = [| 10; 2 |]
       AudioDeviceName = "Speakers"
-      PollIntervalSeconds = 60 }
+      PollIntervalSeconds = 60
+      KeepOnTop = true
+      SoundEnabled = true
+      Volume = 70 }
 
 [<Fact>]
 let ``sanitize drops non-positive thresholds`` () =
@@ -52,6 +55,21 @@ let ``sanitize replaces a non-positive poll interval with the default`` () =
             AlertMinutesBefore = [| 10 |]
             PollIntervalSeconds = 0 }
     (Config.sanitize cfg).PollIntervalSeconds |> should equal 60
+
+[<Fact>]
+let ``sanitize clamps an over-range volume down to 100`` () =
+    let cfg = { baseCfg with Volume = 150 }
+    (Config.sanitize cfg).Volume |> should equal 100
+
+[<Fact>]
+let ``sanitize clamps a negative volume up to 0`` () =
+    let cfg = { baseCfg with Volume = -5 }
+    (Config.sanitize cfg).Volume |> should equal 0
+
+[<Fact>]
+let ``sanitize leaves an in-range volume unchanged`` () =
+    let cfg = { baseCfg with Volume = 40 }
+    (Config.sanitize cfg).Volume |> should equal 40
 
 [<Fact>]
 let ``sanitize replaces null strings with empty`` () =
