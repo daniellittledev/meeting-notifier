@@ -378,6 +378,7 @@ module TrayApp =
         override this.Dispose(disposing: bool) =
             if disposing then
                 try cts.Cancel() with _ -> ()
+                try reminderWindow |> Option.iter (fun w -> w.Close()) with _ -> ()
                 try notifyIcon.Dispose() with _ -> ()
                 if ownsTrayIcon then (try trayIcon.Dispose() with _ -> ())
                 try menu.Dispose() with _ -> ()
