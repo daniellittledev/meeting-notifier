@@ -21,9 +21,12 @@
              Link="_src\GraphParsing.fs" />
     <Compile Include="..\..\src\MeetingNotifier\AlertEngine.fs"
              Link="_src\AlertEngine.fs" />
+    <Compile Include="..\..\src\MeetingNotifier\ReminderList.fs"
+             Link="_src\ReminderList.fs" />
     <Compile Include="AlertEngineTests.fs" />
     <Compile Include="ConfigTests.fs" />
     <Compile Include="GraphParsingTests.fs" />
+    <Compile Include="ReminderListTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
