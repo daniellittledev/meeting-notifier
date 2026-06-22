@@ -281,3 +281,6 @@ type ReminderWindow() =
     member _.SetKeepOnTop(v: bool) : unit =
         keepOnTop <- v
         window.Topmost <- v
+
+    member _.Close() : unit =
+        try window.Close() with _ -> ()
