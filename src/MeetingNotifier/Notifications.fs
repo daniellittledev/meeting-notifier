@@ -102,7 +102,16 @@ module Notifications =
 
     // ============ Unified fire function ============
 
-    /// Fire the alert: chime (if sound enabled) on a worker thread, and a
+    /// Decide whether this alert should chime. Sound must be enabled overall;
+    /// when `SoundOnFinalOnly` is set, only the final reminder (the threshold
+    /// matching `FinalReminderMinutes`) chimes while earlier ones stay silent.
+    /// Pure so the truth table can be unit-tested.
+    let shouldChime (cfg: Config.AppConfig) (pa: PendingAlert) : bool =
+        cfg.SoundEnabled
+        && (not cfg.SoundOnFinalOnly
+            || pa.Threshold = AlertThreshold cfg.FinalReminderMinutes)
+
+    /// Fire the alert: chime (when `shouldChime`) on a worker thread, and a
     /// row added to the singleton reminders window (which shows + flashes).
     /// Must be called on the UI thread because it touches the window.
     let fireAlert
@@ -111,5 +120,5 @@ module Notifications =
         (pa: PendingAlert)
         (onAction: AlertAction -> unit)
         =
-        if cfg.SoundEnabled then Audio.play cfg
+        if shouldChime cfg pa then Audio.play cfg
         window.AddReminder(pa, onAction)

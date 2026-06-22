@@ -5,14 +5,19 @@ calendar events and fires **aggressive, hard-to-miss** alerts when a meeting
 is imminent. Designed for people who keep missing Teams/Outlook meetings
 because toasts get buried and audio plays to headphones they aren't wearing.
 
-When a meeting is coming up, the app fires three things simultaneously:
+Reminders follow each meeting's own Outlook reminder setting: a meeting with
+its reminder switched off (e.g. a "Focus time" block) stays silent, while a
+meeting with a reminder on alerts at its own lead time and again 2 minutes
+before start. When an alert fires, the app surfaces it hard-to-miss:
 
-1. **Windows toast** with a Join button (Teams) and a Snooze 2 min button.
+1. An aggregating **Reminders window** (Outlook-styled) listing every active
+   meeting, with per-row Join (Teams) / Snooze / Dismiss actions. Closing it
+   only minimizes it; the next reminder pops it back to the front.
 2. **Taskbar flashing** — `FlashWindowEx` with `FLASHW_TRAY |
-   FLASHW_TIMERNOFG` against a small popup window; flashing continues until
-   you click it.
+   FLASHW_TIMERNOFG`; flashing continues until you click the window.
 3. **Audio chime** routed to a *non-headphone* render device picked via
-   NAudio (so speakers get it even if headphones are the default output).
+   NAudio (so speakers get it even if headphones are the default output). You
+   can choose to chime on the final 2-minute reminder only.
 
 ## Requirements
 
@@ -55,21 +60,31 @@ this file directly:
 {
   "clientId": "00000000-0000-0000-0000-000000000000",
   "tenantId": "contoso.onmicrosoft.com",
-  "alertMinutesBefore": [10, 2],
+  "finalReminderMinutes": 2,
   "audioDeviceName": "",
-  "pollIntervalSeconds": 60
+  "pollIntervalSeconds": 60,
+  "soundOnFinalOnly": false
 }
 ```
 
-- `alertMinutesBefore` — array of thresholds. An alert fires when the
-  meeting start is that many minutes away (default: 10m and 2m before).
-  Non-positive values are ignored; if none remain the defaults are used.
+Reminders follow each meeting's own Outlook reminder setting. A meeting with
+its reminder switched off (e.g. a "Focus time" block) raises no alert. A
+meeting with a reminder on alerts at its own lead time (the *initial*
+reminder) and again `finalReminderMinutes` before start (the always-on
+*final* reminder); the two are de-duplicated.
+
+- `finalReminderMinutes` — minutes before start for the always-on final
+  reminder, which pops the window to the front, flashes, and chimes
+  (default: 2). Non-positive values fall back to the default.
+- `soundOnFinalOnly` — when `true`, only the final reminder chimes; earlier
+  reminders show silently (default: `false`). Also toggleable from the tray
+  menu ("Only chime on final reminder").
 - `audioDeviceName` — exact friendly name of the render device to play the
   chime through (e.g. `"Speakers (Realtek(R) Audio)"`). Leave empty to let
   the app auto-pick the first active non-headphone device.
 - `pollIntervalSeconds` — Graph calendarView poll cadence. It is
-  automatically capped so it's never slower than the smallest alert window
-  (e.g. a 2-minute threshold forces a poll of at most 120s), otherwise a
+  automatically capped so it's never slower than the final-reminder window
+  (e.g. a 2-minute final reminder forces a poll of at most 120s), otherwise a
   tick could step over the window and miss the alert.
 
 Configuration is read once at launch, so **edits only take effect after you

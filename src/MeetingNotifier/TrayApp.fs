@@ -73,6 +73,7 @@ module TrayApp =
         let startupItem = new ToolStripMenuItem("Run at startup")
         let keepOnTopItem = new ToolStripMenuItem("Keep reminders on top")
         let soundItem = new ToolStripMenuItem("Play sound")
+        let soundFinalOnlyItem = new ToolStripMenuItem("Only chime on final reminder")
         let settingsItem = new ToolStripMenuItem("Settings")
         let reauthItem = new ToolStripMenuItem("Re-authenticate...")
         let updateItem = new ToolStripMenuItem("Check for updates...")
@@ -154,6 +155,10 @@ module TrayApp =
 
         let applySound (v: bool) =
             cfg <- { cfg with SoundEnabled = v }
+            try Config.save cfg with _ -> ()
+
+        let applySoundFinalOnly (v: bool) =
+            cfg <- { cfg with SoundOnFinalOnly = v }
             try Config.save cfg with _ -> ()
 
         let openSettings () =
@@ -248,10 +253,6 @@ module TrayApp =
                     postToUi (fun () -> setConnection (Disconnected msg))
                 | Ok meetings ->
                     postToUi (fun () -> setConnection Connected)
-                    let thresholds =
-                        cfg.AlertMinutesBefore
-                        |> Array.map AlertThreshold
-                        |> Array.toList
                     let snapshot = meetings
                     let pending =
                         lock stateLock (fun () ->
@@ -260,7 +261,7 @@ module TrayApp =
                                 AlertEngine.pruneStale now snapshot state
                             let p, s =
                                 AlertEngine.computePending
-                                    now thresholds snapshot pruned
+                                    now cfg.FinalReminderMinutes snapshot pruned
                             state <- s
                             p)
                     for pa in pending do
@@ -323,7 +324,16 @@ module TrayApp =
 
             soundItem.CheckOnClick <- true
             soundItem.Checked <- cfg.SoundEnabled
-            soundItem.Click.Add(fun _ -> applySound soundItem.Checked)
+            soundItem.Click.Add(fun _ ->
+                applySound soundItem.Checked
+                // The final-only choice is meaningless when sound is off.
+                soundFinalOnlyItem.Enabled <- soundItem.Checked)
+
+            soundFinalOnlyItem.CheckOnClick <- true
+            soundFinalOnlyItem.Checked <- cfg.SoundOnFinalOnly
+            soundFinalOnlyItem.Enabled <- cfg.SoundEnabled
+            soundFinalOnlyItem.Click.Add(fun _ ->
+                applySoundFinalOnly soundFinalOnlyItem.Checked)
 
             settingsItem.Click.Add(fun _ -> openSettings ())
 
@@ -354,6 +364,7 @@ module TrayApp =
             menu.Items.Add(startupItem :> ToolStripItem) |> ignore
             menu.Items.Add(keepOnTopItem :> ToolStripItem) |> ignore
             menu.Items.Add(soundItem :> ToolStripItem) |> ignore
+            menu.Items.Add(soundFinalOnlyItem :> ToolStripItem) |> ignore
             menu.Items.Add(settingsItem :> ToolStripItem) |> ignore
             menu.Items.Add(reauthItem :> ToolStripItem) |> ignore
             menu.Items.Add(updateItem :> ToolStripItem) |> ignore

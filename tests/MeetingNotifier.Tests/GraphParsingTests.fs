@@ -29,12 +29,16 @@ let ``toDomain substitutes a placeholder subject and tolerates null sub-objects`
           ``end`` = { dateTime = "2026-04-15T10:30:00.0000000"; timeZone = "UTC" }
           location = Unchecked.defaultof<GraphParsing.GraphLocation>
           onlineMeeting = Unchecked.defaultof<GraphParsing.GraphOnlineMeeting>
-          isCancelled = false }
+          isCancelled = false
+          isReminderOn = true
+          reminderMinutesBeforeStart = 15 }
     let m = GraphParsing.toDomain ev
     m.Subject |> should equal "(no subject)"
     m.Location |> should equal None
     m.JoinUrl |> should equal None
     m.Id |> should equal (MeetingId "abc")
+    m.IsReminderOn |> should be True
+    m.ReminderMinutesBeforeStart |> should equal 15
 
 [<Fact>]
 let ``parsePage parses meetings and reports no nextLink`` () =
@@ -46,6 +50,8 @@ let ``parsePage parses meetings and reports no nextLink`` () =
                 "end": { "dateTime": "2026-04-15T10:30:00.0000000", "timeZone": "UTC" },
                 "location": { "displayName": "Room 1" },
                 "onlineMeeting": { "joinUrl": "https://teams.example/join" },
+                "isReminderOn": true,
+                "reminderMinutesBeforeStart": 15,
                 "isCancelled": false } ] }"""
     let meetings, next = GraphParsing.parsePage body
     meetings |> List.length |> should equal 1
@@ -54,6 +60,22 @@ let ``parsePage parses meetings and reports no nextLink`` () =
     m.Subject |> should equal "Standup"
     m.Location |> should equal (Some "Room 1")
     m.JoinUrl |> should equal (Some "https://teams.example/join")
+    m.IsReminderOn |> should be True
+    m.ReminderMinutesBeforeStart |> should equal 15
+
+[<Fact>]
+let ``parsePage defaults reminder fields when absent`` () =
+    let body =
+        """{ "value": [
+              { "id": "m1",
+                "subject": "No reminder fields",
+                "start": { "dateTime": "2026-04-15T10:00:00.0000000", "timeZone": "UTC" },
+                "end": { "dateTime": "2026-04-15T10:30:00.0000000", "timeZone": "UTC" },
+                "isCancelled": false } ] }"""
+    let meetings, _ = GraphParsing.parsePage body
+    let m = meetings.Head
+    m.IsReminderOn |> should be False
+    m.ReminderMinutesBeforeStart |> should equal 0
 
 [<Fact>]
 let ``parsePage surfaces the odata nextLink for pagination`` () =

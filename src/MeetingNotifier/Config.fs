@@ -14,11 +14,16 @@ module Config =
     type AppConfig =
         { ClientId: string
           TenantId: string
-          AlertMinutesBefore: int[]
+          /// Minutes before start for the always-on final reminder. The
+          /// initial reminder comes from each meeting's own Outlook setting.
+          FinalReminderMinutes: int
           AudioDeviceName: string
           PollIntervalSeconds: int
           KeepOnTop: bool
           SoundEnabled: bool
+          /// When true, only the final reminder chimes; earlier reminders
+          /// show silently.
+          SoundOnFinalOnly: bool
           Volume: int }
 
     let appDataDir =
@@ -32,11 +37,12 @@ module Config =
     let private defaults : AppConfig =
         { ClientId = ""
           TenantId = ""
-          AlertMinutesBefore = [| 10; 2 |]
+          FinalReminderMinutes = 2
           AudioDeviceName = ""
           PollIntervalSeconds = 60
           KeepOnTop = true
           SoundEnabled = true
+          SoundOnFinalOnly = false
           Volume = 70 }
 
     let private jsonOptions () =
@@ -54,24 +60,22 @@ module Config =
             Directory.CreateDirectory appDataDir |> ignore
 
     /// Pure normalisation of a freshly-deserialised config: replace nulls,
-    /// drop non-positive alert thresholds (which would silently never fire),
-    /// and clamp the poll interval so it's never slower than the smallest
-    /// alert window — otherwise a tick could step clean over that window and
-    /// miss the alert entirely. Kept pure so it can be unit-tested.
+    /// default a non-positive final-reminder window, and clamp the poll
+    /// interval so it's never slower than that window — otherwise a tick could
+    /// step clean over it and miss the final alert entirely. Kept pure so it
+    /// can be unit-tested.
     let sanitize (cfg: AppConfig) : AppConfig =
-        let thresholds =
-            let valid =
-                if isNull cfg.AlertMinutesBefore then [||]
-                else cfg.AlertMinutesBefore |> Array.filter (fun m -> m > 0)
-            if valid.Length = 0 then defaults.AlertMinutesBefore else valid
+        let finalMinutes =
+            if cfg.FinalReminderMinutes <= 0 then defaults.FinalReminderMinutes
+            else cfg.FinalReminderMinutes
         let configuredPoll =
             if cfg.PollIntervalSeconds <= 0 then defaults.PollIntervalSeconds
             else cfg.PollIntervalSeconds
-        let smallestWindowSecs = (Array.min thresholds) * 60
-        let poll = max 1 (min configuredPoll smallestWindowSecs)
+        let finalWindowSecs = finalMinutes * 60
+        let poll = max 1 (min configuredPoll finalWindowSecs)
         let volume = max 0 (min 100 cfg.Volume)
         { cfg with
-            AlertMinutesBefore = thresholds
+            FinalReminderMinutes = finalMinutes
             PollIntervalSeconds = poll
             Volume = volume
             ClientId = (if isNull cfg.ClientId then "" else cfg.ClientId)

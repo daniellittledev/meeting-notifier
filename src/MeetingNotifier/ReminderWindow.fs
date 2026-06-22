@@ -108,6 +108,9 @@ type ReminderWindow() =
     let mutable callbacks : Map<MeetingId, AlertAction -> unit> = Map.empty
     let mutable keepOnTop = true
     let mutable hwnd = IntPtr.Zero
+    // Set only during app shutdown so the Closing handler lets the window
+    // actually close instead of minimising it.
+    let mutable shuttingDown = false
 
     let loadShell () =
         let asm = Assembly.GetExecutingAssembly()
@@ -242,7 +245,10 @@ type ReminderWindow() =
     do
         window.Title <- "Reminders"
         window.WindowStyle <- WindowStyle.SingleBorderWindow
-        window.ResizeMode <- ResizeMode.NoResize
+        // CanMinimize gives a minimize button (no maximize). The title-bar X
+        // is repurposed to minimise too (see Closing below), so pending
+        // reminders are never lost by closing the window.
+        window.ResizeMode <- ResizeMode.CanMinimize
         window.ShowInTaskbar <- true
         window.Topmost <- keepOnTop
         window.Width <- 380.0
@@ -255,10 +261,21 @@ type ReminderWindow() =
         window.Resources.["TextBrush"] <- brush palette.Text
         scroll.MaxHeight <- SystemParameters.WorkArea.Height * 0.6
         dismissAllButton.Click.Add(fun _ -> dismissAll ())
+        // Repurpose the title-bar X: minimise instead of closing, unless the
+        // app is shutting down. Pending reminders stay and pop back up on the
+        // next alert.
+        window.Closing.Add(fun e ->
+            if not shuttingDown then
+                e.Cancel <- true
+                window.WindowState <- WindowState.Minimized)
         window.Content <- shell
 
     let showAndFlash () =
         if not window.IsVisible then window.Show()
+        // A minimised window is still IsVisible, so restore it explicitly so
+        // the next reminder pops it back to the foreground.
+        if window.WindowState = WindowState.Minimized then
+            window.WindowState <- WindowState.Normal
         hwnd <- WindowInteropHelper(window).Handle
         WindowInterop.setDarkTitleBar hwnd palette.IsDark
         position ()
@@ -283,4 +300,7 @@ type ReminderWindow() =
         window.Topmost <- v
 
     member _.Close() : unit =
+        // Bypass the minimise-on-close handler so the window really closes
+        // when the app is exiting.
+        shuttingDown <- true
         try window.Close() with _ -> ()

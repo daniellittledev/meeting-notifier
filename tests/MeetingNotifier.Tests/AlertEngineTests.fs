@@ -8,6 +8,9 @@ open MeetingNotifier.Domain
 
 let private now = DateTimeOffset(2026, 4, 15, 10, 0, 0, TimeSpan.Zero)
 
+// A meeting whose own reminder is 10 minutes; combined with the default
+// final-reminder of 2 this yields the [10; 2] thresholds the original suite
+// was written against.
 let private meeting id subject minutesFromNow =
     { Id = MeetingId id
       Subject = subject
@@ -15,15 +18,17 @@ let private meeting id subject minutesFromNow =
       End = now + TimeSpan.FromMinutes(float minutesFromNow + 30.0)
       Location = None
       JoinUrl = None
-      IsCancelled = false }
+      IsCancelled = false
+      IsReminderOn = true
+      ReminderMinutesBeforeStart = 10 }
 
-let private thresholds = [ AlertThreshold 10; AlertThreshold 2 ]
+let private finalMinutes = 2
 
 [<Fact>]
 let ``fires 10-minute alert when meeting is exactly 10 minutes out`` () =
     let m = meeting "m1" "Standup" 10
     let pending, newState =
-        AlertEngine.computePending now thresholds [m] AlertState.empty
+        AlertEngine.computePending now finalMinutes [m] AlertState.empty
 
     pending |> List.length |> should equal 1
     let alert = pending.Head
@@ -36,12 +41,12 @@ let ``does not fire the same threshold twice`` () =
     let m = meeting "m1" "Standup" 5
     // First tick: fires 10-min alert (since 5 is within 10)
     let pending1, state1 =
-        AlertEngine.computePending now thresholds [m] AlertState.empty
+        AlertEngine.computePending now finalMinutes [m] AlertState.empty
     pending1 |> List.length |> should equal 1
 
     // Second tick at the same instant: 10-min already fired, no new alert.
     let pending2, _ =
-        AlertEngine.computePending now thresholds [m] state1
+        AlertEngine.computePending now finalMinutes [m] state1
     pending2 |> should be Empty
 
 [<Fact>]
@@ -49,14 +54,14 @@ let ``fires the 2-minute alert separately from the 10-minute alert`` () =
     let m = meeting "m1" "Standup" 9
     // First tick at T-9: only 10-min alert fires.
     let pending1, state1 =
-        AlertEngine.computePending now thresholds [m] AlertState.empty
+        AlertEngine.computePending now finalMinutes [m] AlertState.empty
     pending1 |> List.length |> should equal 1
     pending1.Head.Threshold |> should equal (AlertThreshold 10)
 
     // Later tick at T-1.5: 10-min already fired, 2-min should fire now.
     let later = now + TimeSpan.FromMinutes 7.5
     let pending2, _ =
-        AlertEngine.computePending later thresholds [m] state1
+        AlertEngine.computePending later finalMinutes [m] state1
     pending2 |> List.length |> should equal 1
     pending2.Head.Threshold |> should equal (AlertThreshold 2)
 
@@ -64,21 +69,21 @@ let ``fires the 2-minute alert separately from the 10-minute alert`` () =
 let ``does not fire for cancelled meetings`` () =
     let m = { meeting "m1" "Cancelled" 5 with IsCancelled = true }
     let pending, _ =
-        AlertEngine.computePending now thresholds [m] AlertState.empty
+        AlertEngine.computePending now finalMinutes [m] AlertState.empty
     pending |> should be Empty
 
 [<Fact>]
 let ``does not fire for meetings that have already started`` () =
     let m = meeting "m1" "In progress" -1
     let pending, _ =
-        AlertEngine.computePending now thresholds [m] AlertState.empty
+        AlertEngine.computePending now finalMinutes [m] AlertState.empty
     pending |> should be Empty
 
 [<Fact>]
 let ``does not fire for meetings outside the threshold window`` () =
     let m = meeting "m1" "Later" 45
     let pending, _ =
-        AlertEngine.computePending now thresholds [m] AlertState.empty
+        AlertEngine.computePending now finalMinutes [m] AlertState.empty
     pending |> should be Empty
 
 [<Fact>]
@@ -88,13 +93,13 @@ let ``markSnoozed suppresses alerts until snooze expires`` () =
 
     // During the snooze window, no alerts fire even though we're in range.
     let pending1, _ =
-        AlertEngine.computePending now thresholds [m] snoozed
+        AlertEngine.computePending now finalMinutes [m] snoozed
     pending1 |> should be Empty
 
     // After the snooze expires, the next threshold crossing fires again.
     let later = now + TimeSpan.FromMinutes 4.0
     let pending2, _ =
-        AlertEngine.computePending later thresholds [m] snoozed
+        AlertEngine.computePending later finalMinutes [m] snoozed
     pending2 |> List.length |> should be (greaterThan 0)
 
 [<Fact>]
@@ -124,7 +129,44 @@ let ``fires both thresholds on the same tick if both are in range`` () =
     // Meeting is 1 minute out — both the 10- and 2-minute windows include it.
     let m = meeting "m1" "Imminent" 1
     let pending, _ =
-        AlertEngine.computePending now thresholds [m] AlertState.empty
+        AlertEngine.computePending now finalMinutes [m] AlertState.empty
     pending |> List.length |> should equal 2
     let kinds = pending |> List.map (fun p -> p.Threshold) |> Set.ofList
     kinds |> should equal (Set.ofList [AlertThreshold 10; AlertThreshold 2])
+
+[<Fact>]
+let ``does not fire for a meeting with reminders switched off`` () =
+    // A "Focus time" block: reminders off => no alerts at any threshold.
+    let m = { meeting "focus" "Focus time" 1 with IsReminderOn = false }
+    let pending, _ =
+        AlertEngine.computePending now finalMinutes [m] AlertState.empty
+    pending |> should be Empty
+
+[<Fact>]
+let ``uses the meeting's own reminder lead time for the initial alert`` () =
+    // Reminder set to 15 minutes: fires at T-15 but not at T-45.
+    let m = { meeting "m1" "Planning" 15 with ReminderMinutesBeforeStart = 15 }
+    let early, _ =
+        AlertEngine.computePending
+            (now - TimeSpan.FromMinutes 30.0) finalMinutes [m] AlertState.empty
+    early |> should be Empty
+    let pending, _ =
+        AlertEngine.computePending now finalMinutes [m] AlertState.empty
+    pending |> List.map (fun p -> p.Threshold) |> should contain (AlertThreshold 15)
+
+[<Fact>]
+let ``dedupes when the meeting's own reminder equals the final reminder`` () =
+    // Own reminder is already 2 minutes, the same as the final reminder, so
+    // only a single threshold (and a single alert) results.
+    let m = { meeting "m1" "Quick" 2 with ReminderMinutesBeforeStart = 2 }
+    AlertEngine.thresholdsFor finalMinutes m |> should equal [ AlertThreshold 2 ]
+    let pending, _ =
+        AlertEngine.computePending now finalMinutes [m] AlertState.empty
+    pending |> List.length |> should equal 1
+
+[<Fact>]
+let ``thresholdsFor drops a non-positive own reminder but keeps the final`` () =
+    // A "0 minutes / at start" reminder contributes nothing; the always-on
+    // final reminder still applies.
+    let m = { meeting "m1" "At start" 1 with ReminderMinutesBeforeStart = 0 }
+    AlertEngine.thresholdsFor finalMinutes m |> should equal [ AlertThreshold 2 ]
