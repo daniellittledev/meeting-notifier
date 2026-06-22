@@ -16,7 +16,13 @@ module Domain =
           End: DateTimeOffset
           Location: string option
           JoinUrl: string option
-          IsCancelled: bool }
+          IsCancelled: bool
+          /// Whether the meeting's own Outlook reminder is switched on. When
+          /// off (e.g. a "Focus time" block) the meeting raises no alerts.
+          IsReminderOn: bool
+          /// The meeting's own reminder lead time in minutes, used as the
+          /// initial alert threshold alongside the always-on final reminder.
+          ReminderMinutesBeforeStart: int }
 
     /// Minutes-before-meeting at which an alert should fire.
     type AlertThreshold = AlertThreshold of minutesBefore: int

@@ -31,11 +31,28 @@ module AlertEngine =
         let windowStart = TimeSpan.FromMinutes(float mins)
         leadTime <= windowStart && leadTime > TimeSpan.Zero
 
+    /// Derive a meeting's alert thresholds from its own Outlook reminder
+    /// settings. A meeting with reminders switched off (e.g. "Focus time")
+    /// raises no alerts. Otherwise it alerts at its own reminder lead time
+    /// plus an always-on final reminder `finalMinutes` before start. The two
+    /// are de-duplicated (a meeting whose own reminder is already the final
+    /// value yields a single threshold) and non-positive values are dropped
+    /// (a "0 minutes / at start" reminder can never fire a positive window).
+    let thresholdsFor (finalMinutes: int) (meeting: Meeting) : AlertThreshold list =
+        if not meeting.IsReminderOn then []
+        else
+            [ meeting.ReminderMinutesBeforeStart; finalMinutes ]
+            |> List.filter (fun m -> m > 0)
+            |> List.distinct
+            |> List.map AlertThreshold
+
     /// Compute the set of alerts that should fire on this tick, plus the
-    /// updated state. State is threaded immutably.
+    /// updated state. Thresholds are derived per meeting from its own reminder
+    /// settings and the configured final-reminder minutes. State is threaded
+    /// immutably.
     let computePending
         (now: DateTimeOffset)
-        (thresholds: AlertThreshold list)
+        (finalMinutes: int)
         (meetings: Meeting list)
         (state: AlertState)
         : PendingAlert list * AlertState
@@ -44,7 +61,7 @@ module AlertEngine =
         let pending = ResizeArray<PendingAlert>()
         for m in meetings do
             if not m.IsCancelled && not (isSnoozed now state m.Id) then
-                for t in thresholds do
+                for t in thresholdsFor finalMinutes m do
                     let key : AlertKey = { Meeting = m.Id; Threshold = t }
                     if not (Set.contains key fired) && shouldFire now m t then
                         pending.Add { Meeting = m; Threshold = t }

@@ -16,7 +16,9 @@ let private pending id subject joinUrl =
           End = now + TimeSpan.FromMinutes 30.0
           Location = None
           JoinUrl = joinUrl
-          IsCancelled = false }
+          IsCancelled = false
+          IsReminderOn = true
+          ReminderMinutesBeforeStart = 15 }
       Threshold = AlertThreshold 10 }
 
 [<Fact>]

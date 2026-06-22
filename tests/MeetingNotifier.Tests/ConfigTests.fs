@@ -7,35 +7,31 @@ open MeetingNotifier
 let private baseCfg : Config.AppConfig =
     { ClientId = "cid"
       TenantId = "tid"
-      AlertMinutesBefore = [| 10; 2 |]
+      FinalReminderMinutes = 2
       AudioDeviceName = "Speakers"
       PollIntervalSeconds = 60
       KeepOnTop = true
       SoundEnabled = true
+      SoundOnFinalOnly = false
       Volume = 70 }
 
 [<Fact>]
-let ``sanitize drops non-positive thresholds`` () =
-    let cfg = { baseCfg with AlertMinutesBefore = [| 10; 0; -5; 2 |] }
-    (Config.sanitize cfg).AlertMinutesBefore |> should equal [| 10; 2 |]
+let ``sanitize defaults a non-positive final reminder`` () =
+    let cfg = { baseCfg with FinalReminderMinutes = 0 }
+    (Config.sanitize cfg).FinalReminderMinutes |> should equal 2
 
 [<Fact>]
-let ``sanitize falls back to defaults when all thresholds invalid`` () =
-    let cfg = { baseCfg with AlertMinutesBefore = [| 0; -1 |] }
-    (Config.sanitize cfg).AlertMinutesBefore |> should equal [| 10; 2 |]
+let ``sanitize keeps a positive final reminder`` () =
+    let cfg = { baseCfg with FinalReminderMinutes = 5 }
+    (Config.sanitize cfg).FinalReminderMinutes |> should equal 5
 
 [<Fact>]
-let ``sanitize falls back to defaults when thresholds null`` () =
-    let cfg = { baseCfg with AlertMinutesBefore = null }
-    (Config.sanitize cfg).AlertMinutesBefore |> should equal [| 10; 2 |]
-
-[<Fact>]
-let ``sanitize clamps poll interval to the smallest alert window`` () =
-    // Smallest threshold is 2 min => a 120s window; a 300s poll would step
-    // clean over it and never fire, so it must be clamped down.
+let ``sanitize clamps poll interval to the final-reminder window`` () =
+    // Final reminder is 2 min => a 120s window; a 300s poll would step clean
+    // over it and never fire, so it must be clamped down.
     let cfg =
         { baseCfg with
-            AlertMinutesBefore = [| 10; 2 |]
+            FinalReminderMinutes = 2
             PollIntervalSeconds = 300 }
     (Config.sanitize cfg).PollIntervalSeconds |> should equal 120
 
@@ -43,16 +39,17 @@ let ``sanitize clamps poll interval to the smallest alert window`` () =
 let ``sanitize keeps a poll interval already within the window`` () =
     let cfg =
         { baseCfg with
-            AlertMinutesBefore = [| 10; 2 |]
+            FinalReminderMinutes = 2
             PollIntervalSeconds = 45 }
     (Config.sanitize cfg).PollIntervalSeconds |> should equal 45
 
 [<Fact>]
 let ``sanitize replaces a non-positive poll interval with the default`` () =
-    // Default poll is 60; smallest window from [|10|] is 600s, so 60 stands.
+    // Default poll is 60; the window from a 10-min final reminder is 600s, so
+    // 60 stands.
     let cfg =
         { baseCfg with
-            AlertMinutesBefore = [| 10 |]
+            FinalReminderMinutes = 10
             PollIntervalSeconds = 0 }
     (Config.sanitize cfg).PollIntervalSeconds |> should equal 60
 

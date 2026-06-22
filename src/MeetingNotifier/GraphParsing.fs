@@ -36,7 +36,9 @@ module GraphParsing =
           ``end``: GraphDateTimeTz
           location: GraphLocation
           onlineMeeting: GraphOnlineMeeting
-          isCancelled: bool }
+          isCancelled: bool
+          isReminderOn: bool
+          reminderMinutesBeforeStart: int }
 
     [<CLIMutable>]
     type GraphEventsResponse =
@@ -84,7 +86,9 @@ module GraphParsing =
           JoinUrl =
               if isNull (box e.onlineMeeting) then None
               else opt e.onlineMeeting.joinUrl
-          IsCancelled = e.isCancelled }
+          IsCancelled = e.isCancelled
+          IsReminderOn = e.isReminderOn
+          ReminderMinutesBeforeStart = e.reminderMinutesBeforeStart }
 
     /// Deserialise one calendarView page into domain meetings plus the
     /// `@odata.nextLink` (if any) so the caller can follow pagination.
@@ -110,5 +114,6 @@ module GraphParsing =
         $"https://graph.microsoft.com/v1.0/me/calendarView"
         + $"?startDateTime={fmt startT}&endDateTime={fmt endT}"
         + "&$select=id,subject,start,end,location,onlineMeeting,isCancelled"
+        + ",isReminderOn,reminderMinutesBeforeStart"
         + "&$orderby=start/dateTime"
         + "&$top=50"
