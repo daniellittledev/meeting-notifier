@@ -264,7 +264,7 @@ type ReminderWindow() =
         position ()
         // Pop to front once even when not pinned, then settle to the pref.
         window.Topmost <- true
-        window.Activate()
+        window.Activate() |> ignore
         window.Topmost <- keepOnTop
         WindowInterop.flash hwnd
 

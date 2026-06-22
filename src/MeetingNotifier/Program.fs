@@ -41,9 +41,6 @@ module Program =
         match cfgOpt with
         | None -> 0
         | Some cfg ->
-            // Register the AUMID shortcut so toast notifications work.
-            AumidRegistration.ensure "MeetingNotifier.App"
-
             // Build the MSAL token provider synchronously on the UI thread
             // so first-run interactive login blocks the tray from appearing
             // until consent is granted.
