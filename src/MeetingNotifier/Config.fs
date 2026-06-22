@@ -16,7 +16,10 @@ module Config =
           TenantId: string
           AlertMinutesBefore: int[]
           AudioDeviceName: string
-          PollIntervalSeconds: int }
+          PollIntervalSeconds: int
+          KeepOnTop: bool
+          SoundEnabled: bool
+          Volume: int }
 
     let appDataDir =
         let root = Environment.GetFolderPath Environment.SpecialFolder.ApplicationData
@@ -31,7 +34,10 @@ module Config =
           TenantId = ""
           AlertMinutesBefore = [| 10; 2 |]
           AudioDeviceName = ""
-          PollIntervalSeconds = 60 }
+          PollIntervalSeconds = 60
+          KeepOnTop = true
+          SoundEnabled = true
+          Volume = 70 }
 
     let private jsonOptions () =
         let opts =
@@ -63,9 +69,11 @@ module Config =
             else cfg.PollIntervalSeconds
         let smallestWindowSecs = (Array.min thresholds) * 60
         let poll = max 1 (min configuredPoll smallestWindowSecs)
+        let volume = max 0 (min 100 cfg.Volume)
         { cfg with
             AlertMinutesBefore = thresholds
             PollIntervalSeconds = poll
+            Volume = volume
             ClientId = (if isNull cfg.ClientId then "" else cfg.ClientId)
             TenantId = (if isNull cfg.TenantId then "" else cfg.TenantId)
             AudioDeviceName =
