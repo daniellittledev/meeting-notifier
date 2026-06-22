@@ -16,9 +16,6 @@ open MeetingNotifier.Domain
 /// onto the UI thread when needed.
 module TrayApp =
 
-    [<Literal>]
-    let private aumid = "MeetingNotifier.App"
-
     /// Returns the tray icon plus a flag for whether we own it (and so must
     /// dispose it). The shared `SystemIcons.Application` must never be
     /// disposed, so the fallback is reported as not-owned.
@@ -56,11 +53,13 @@ module TrayApp =
                      uiContext: SynchronizationContext) =
         inherit ApplicationContext()
 
+        let mutable cfg = cfg
         let mutable state = AlertState.empty
         let mutable lastSnapshot : Meeting list = []
         // A downloaded, ready-to-apply update, once a check has found one.
         let mutable preparedUpdate
             : (Velopack.UpdateManager * Velopack.UpdateInfo) option = None
+        let mutable reminderWindow : ReminderWindow option = None
         let stateLock = obj()
         let cts = new CancellationTokenSource()
         let notifyIcon = new NotifyIcon()
@@ -72,6 +71,8 @@ module TrayApp =
         let disconnectedDot = makeDot (Color.FromArgb(0xE7, 0x4C, 0x3C))
         let upcomingItem = new ToolStripMenuItem("Upcoming meetings")
         let startupItem = new ToolStripMenuItem("Run at startup")
+        let keepOnTopItem = new ToolStripMenuItem("Keep reminders on top")
+        let soundItem = new ToolStripMenuItem("Play sound")
         let settingsItem = new ToolStripMenuItem("Settings")
         let reauthItem = new ToolStripMenuItem("Re-authenticate...")
         let updateItem = new ToolStripMenuItem("Check for updates...")
@@ -93,6 +94,17 @@ module TrayApp =
             statusItem.Image <- dot
             statusItem.ToolTipText <- tip
             notifyIcon.Text <- sprintf "Meeting Notifier — %s" text
+
+        // Lazily create the single reminders window. Must run on the UI
+        // thread, so only call it from inside postToUi.
+        let getWindow () =
+            match reminderWindow with
+            | Some w -> w
+            | None ->
+                let w = ReminderWindow()
+                w.SetKeepOnTop cfg.KeepOnTop
+                reminderWindow <- Some w
+                w
 
         let snapshotMeetings () =
             lock stateLock (fun () -> lastSnapshot)
@@ -134,6 +146,15 @@ module TrayApp =
         let refreshStartupCheckmark () =
             try startupItem.Checked <- Startup.isEnabled ()
             with _ -> startupItem.Checked <- false
+
+        let applyKeepOnTop (v: bool) =
+            cfg <- { cfg with KeepOnTop = v }
+            try Config.save cfg with _ -> ()
+            reminderWindow |> Option.iter (fun w -> w.SetKeepOnTop v)
+
+        let applySound (v: bool) =
+            cfg <- { cfg with SoundEnabled = v }
+            try Config.save cfg with _ -> ()
 
         let openSettings () =
             try
@@ -244,8 +265,8 @@ module TrayApp =
                             p)
                     for pa in pending do
                         postToUi (fun () ->
-                            Notifications.fireAlert aumid cfg postToUi pa
-                                (handleAlertAction pa))
+                            let w = getWindow ()
+                            Notifications.fireAlert cfg w pa (handleAlertAction pa))
             }
 
         let rec pollLoop () =
@@ -296,6 +317,14 @@ module TrayApp =
                     MessageBox.Show(sprintf "Startup toggle failed: %s" ex.Message)
                     |> ignore)
 
+            keepOnTopItem.CheckOnClick <- true
+            keepOnTopItem.Checked <- cfg.KeepOnTop
+            keepOnTopItem.Click.Add(fun _ -> applyKeepOnTop keepOnTopItem.Checked)
+
+            soundItem.CheckOnClick <- true
+            soundItem.Checked <- cfg.SoundEnabled
+            soundItem.Click.Add(fun _ -> applySound soundItem.Checked)
+
             settingsItem.Click.Add(fun _ -> openSettings ())
 
             reauthItem.Click.Add(fun _ ->
@@ -323,6 +352,8 @@ module TrayApp =
             menu.Items.Add(upcomingItem :> ToolStripItem) |> ignore
             menu.Items.Add(new ToolStripSeparator() :> ToolStripItem) |> ignore
             menu.Items.Add(startupItem :> ToolStripItem) |> ignore
+            menu.Items.Add(keepOnTopItem :> ToolStripItem) |> ignore
+            menu.Items.Add(soundItem :> ToolStripItem) |> ignore
             menu.Items.Add(settingsItem :> ToolStripItem) |> ignore
             menu.Items.Add(reauthItem :> ToolStripItem) |> ignore
             menu.Items.Add(updateItem :> ToolStripItem) |> ignore
