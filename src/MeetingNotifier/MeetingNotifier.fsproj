@@ -26,6 +26,7 @@
     <Compile Include="GraphClient.fs" />
     <Compile Include="AlertEngine.fs" />
     <Compile Include="AumidRegistration.fs" />
+    <Compile Include="ReminderList.fs" />
     <Compile Include="Notifications.fs" />
     <Compile Include="Startup.fs" />
     <Compile Include="Updater.fs" />
