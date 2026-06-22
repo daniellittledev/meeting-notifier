@@ -5,6 +5,7 @@
     <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
     <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
     <UseWindowsForms>true</UseWindowsForms>
+    <UseWPF>true</UseWPF>
     <ApplicationIcon>appicon.ico</ApplicationIcon>
     <RootNamespace>MeetingNotifier</RootNamespace>
     <AssemblyName>MeetingNotifier</AssemblyName>
@@ -27,6 +28,7 @@
     <Compile Include="AlertEngine.fs" />
     <Compile Include="AumidRegistration.fs" />
     <Compile Include="ReminderList.fs" />
+    <Compile Include="ReminderWindow.fs" />
     <Compile Include="Notifications.fs" />
     <Compile Include="Startup.fs" />
     <Compile Include="Updater.fs" />
@@ -37,6 +39,8 @@
 
   <ItemGroup>
     <EmbeddedResource Include="alert.wav" />
+    <Page Remove="ReminderShell.xaml" />
+    <EmbeddedResource Include="ReminderShell.xaml" />
     <Content Include="appicon.ico">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
