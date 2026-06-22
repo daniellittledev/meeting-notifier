@@ -23,7 +23,9 @@ module private ReminderTheme =
           Surface: Color
           Text: Color
           Subtle: Color
-          Accent: Color }
+          Accent: Color
+          ButtonBg: Color
+          ButtonHover: Color }
 
     let private rgb (r, g, b) = Color.FromRgb(byte r, byte g, byte b)
 
@@ -34,7 +36,9 @@ module private ReminderTheme =
           Surface = rgb (43, 43, 43)
           Text = rgb (255, 255, 255)
           Subtle = rgb (170, 170, 170)
-          Accent = rgb (96, 205, 255) }
+          Accent = rgb (96, 205, 255)
+          ButtonBg = rgb (60, 60, 60)
+          ButtonHover = rgb (75, 75, 75) }
 
     let private light =
         { IsDark = false
@@ -43,7 +47,9 @@ module private ReminderTheme =
           Surface = rgb (255, 255, 255)
           Text = rgb (26, 26, 26)
           Subtle = rgb (96, 96, 96)
-          Accent = rgb (0, 95, 184) }
+          Accent = rgb (0, 95, 184)
+          ButtonBg = rgb (225, 225, 225)
+          ButtonHover = rgb (210, 210, 210) }
 
     let current () =
         let useLight =
@@ -253,6 +259,8 @@ type ReminderWindow() =
         window.Resources.["WindowBg"] <- brush palette.WindowBg
         window.Resources.["HeaderBg"] <- brush palette.HeaderBg
         window.Resources.["TextBrush"] <- brush palette.Text
+        window.Resources.["ButtonBg"] <- brush palette.ButtonBg
+        window.Resources.["ButtonHoverBg"] <- brush palette.ButtonHover
         scroll.MaxHeight <- SystemParameters.WorkArea.Height * 0.6
         dismissAllButton.Click.Add(fun _ -> dismissAll ())
         window.Content <- shell
