@@ -103,6 +103,42 @@ let ``markSnoozed suppresses alerts until snooze expires`` () =
     pending2 |> List.length |> should be (greaterThan 0)
 
 [<Fact>]
+let ``markSnoozedUntil suppresses alerts until the given time`` () =
+    let m = meeting "m1" "Busy" 5
+    let until = now + TimeSpan.FromMinutes 3.0
+    let snoozed = AlertEngine.markSnoozedUntil m.Id until AlertState.empty
+
+    // Before the target time, no alerts fire even though we're in range.
+    let pending1, _ =
+        AlertEngine.computePending now finalMinutes [m] snoozed
+    pending1 |> should be Empty
+
+    // Once now passes the target time, the next crossing fires again.
+    let later = now + TimeSpan.FromMinutes 4.0
+    let pending2, _ =
+        AlertEngine.computePending later finalMinutes [m] snoozed
+    pending2 |> List.length |> should be (greaterThan 0)
+
+[<Fact>]
+let ``markDismissed suppresses all further alerts for the meeting`` () =
+    let m = meeting "m1" "Busy" 9
+
+    // The first (10-minute) alert fires.
+    let pending1, state1 =
+        AlertEngine.computePending now finalMinutes [m] AlertState.empty
+    pending1 |> List.length |> should be (greaterThan 0)
+
+    // User dismisses it.
+    let dismissed = AlertEngine.markDismissed m.Id state1
+
+    // At the final-reminder crossing the dismissed meeting stays silent
+    // (no second chime or reminder).
+    let later = now + TimeSpan.FromMinutes 7.0
+    let pending2, _ =
+        AlertEngine.computePending later finalMinutes [m] dismissed
+    pending2 |> should be Empty
+
+[<Fact>]
 let ``pruneStale drops state for meetings no longer upcoming`` () =
     let past = { meeting "old" "Past" -60 with Start = now - TimeSpan.FromMinutes 60.0 }
     let future = meeting "new" "Future" 15
@@ -112,7 +148,8 @@ let ``pruneStale drops state for meetings no longer upcoming`` () =
             { Meeting = future.Id; Threshold = AlertThreshold 10 } ]
           Snoozed = Map.ofList [
             past.Id, now + TimeSpan.FromMinutes 5.0
-            future.Id, now + TimeSpan.FromMinutes 5.0 ] }
+            future.Id, now + TimeSpan.FromMinutes 5.0 ]
+          Dismissed = Set.ofList [ past.Id; future.Id ] }
 
     let pruned =
         AlertEngine.pruneStale now [past; future] dirtyState
@@ -123,6 +160,7 @@ let ``pruneStale drops state for meetings no longer upcoming`` () =
     pruned.Snoozed |> Map.toList
         |> List.map fst
         |> should equal [future.Id]
+    pruned.Dismissed |> Set.toList |> should equal [future.Id]
 
 [<Fact>]
 let ``fires both thresholds on the same tick if both are in range`` () =

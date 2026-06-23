@@ -60,7 +60,9 @@ module AlertEngine =
         let mutable fired = state.Fired
         let pending = ResizeArray<PendingAlert>()
         for m in meetings do
-            if not m.IsCancelled && not (isSnoozed now state m.Id) then
+            if not m.IsCancelled
+               && not (isSnoozed now state m.Id)
+               && not (Set.contains m.Id state.Dismissed) then
                 for t in thresholdsFor finalMinutes m do
                     let key : AlertKey = { Meeting = m.Id; Threshold = t }
                     if not (Set.contains key fired) && shouldFire now m t then
@@ -69,9 +71,23 @@ module AlertEngine =
         let newState = { state with Fired = fired }
         List.ofSeq pending, newState
 
-    /// Mark a meeting as snoozed for `minutes` from `now`. Also clears any
-    /// already-fired entries for this meeting so the next threshold crossing
-    /// (after the snooze expires) re-fires.
+    /// Mark a meeting as snoozed until `until`. Also clears any already-fired
+    /// entries for this meeting so the next threshold crossing (after the
+    /// snooze expires) re-fires.
+    let markSnoozedUntil
+        (meetingId: MeetingId)
+        (until: DateTimeOffset)
+        (state: AlertState)
+        : AlertState
+        =
+        let fired' =
+            state.Fired |> Set.filter (fun k -> k.Meeting <> meetingId)
+        { state with
+            Fired = fired'
+            Snoozed = Map.add meetingId until state.Snoozed }
+
+    /// Mark a meeting as snoozed for `minutes` from `now`. Thin wrapper over
+    /// `markSnoozedUntil` kept for duration-based callers.
     let markSnoozed
         (now: DateTimeOffset)
         (meetingId: MeetingId)
@@ -79,12 +95,12 @@ module AlertEngine =
         (state: AlertState)
         : AlertState
         =
-        let until = now + TimeSpan.FromMinutes(float minutes)
-        let fired' =
-            state.Fired |> Set.filter (fun k -> k.Meeting <> meetingId)
-        { state with
-            Fired = fired'
-            Snoozed = Map.add meetingId until state.Snoozed }
+        markSnoozedUntil meetingId (now + TimeSpan.FromMinutes(float minutes)) state
+
+    /// Mark a meeting as dismissed so none of its remaining thresholds fire
+    /// (no second chime or reminder once the user has dismissed it).
+    let markDismissed (meetingId: MeetingId) (state: AlertState) : AlertState =
+        { state with Dismissed = Set.add meetingId state.Dismissed }
 
     /// Drop state for meetings that are no longer upcoming (start <= now)
     /// so the Fired/Snoozed maps don't grow without bound. Call once per
@@ -105,4 +121,6 @@ module AlertEngine =
         let snoozed' =
             state.Snoozed
             |> Map.filter (fun id _ -> Set.contains id upcomingIds)
-        { Fired = fired'; Snoozed = snoozed' }
+        let dismissed' =
+            state.Dismissed |> Set.filter (fun id -> Set.contains id upcomingIds)
+        { Fired = fired'; Snoozed = snoozed'; Dismissed = dismissed' }
