@@ -10,6 +10,7 @@ open System.Windows.Media
 open System.Windows.Markup
 open System.Windows.Interop
 open System.Windows.Input
+open System.Windows.Threading
 open Microsoft.Win32
 open MeetingNotifier.Domain
 
@@ -106,6 +107,10 @@ module private WindowInterop =
 /// called on the UI (STA) thread; TrayApp routes via its UI SynchronizationContext.
 type ReminderWindow() =
 
+    // Minutes before a meeting's start that Snooze (per-row and "all")
+    // re-reminds at.
+    let snoozeLeadMinutes = 2.0
+
     let palette = ReminderTheme.current ()
     let brush (c: Color) = SolidColorBrush c :> Brush
 
@@ -130,6 +135,11 @@ type ReminderWindow() =
     let panel = shell.FindName "RowsPanel" :?> StackPanel
     let scroll = shell.FindName "RowsScroll" :?> ScrollViewer
     let dismissAllButton = shell.FindName "DismissAllButton" :?> Button
+    let snoozeAllButton = shell.FindName "SnoozeAllButton" :?> Button
+
+    // Ticks while the window is open to keep each row's "in N mins" countdown
+    // honest without the user having to do anything.
+    let countdownTimer = DispatcherTimer(Interval = TimeSpan.FromSeconds 30.0)
 
     let mkIconButton (glyph: string) (tip: string) =
         let b = Button()
@@ -201,9 +211,11 @@ type ReminderWindow() =
                 Foreground = brush palette.Text,
                 TextTrimming = TextTrimming.CharacterEllipsis)
         let timeStr = r.Start.ToLocalTime().ToString "h:mm tt"
+        let untilStr = ReminderList.timeUntilText DateTimeOffset.Now r.Start
         let subText =
-            if String.IsNullOrEmpty r.Subtitle then timeStr
-            else sprintf "%s · %s" timeStr r.Subtitle
+            [ timeStr; untilStr; r.Subtitle ]
+            |> List.filter (String.IsNullOrEmpty >> not)
+            |> String.concat " · "
         let subtitle =
             TextBlock(Text = subText, FontSize = 12.0, Foreground = brush palette.Subtle)
         texts.Children.Add subject |> ignore
@@ -221,8 +233,9 @@ type ReminderWindow() =
         | None -> ()
 
         let snooze = mkIconButton "" "Snooze 2 min" // clock glyph
+        snooze.ToolTip <- "Snooze until 2 min before start"
         snooze.Click.Add(fun _ ->
-            onAction (Snooze 2)
+            onAction (Snooze (r.Start.AddMinutes(-snoozeLeadMinutes)))
             removeReminder r.Id)
         actions.Children.Add snooze |> ignore
 
@@ -248,12 +261,21 @@ type ReminderWindow() =
         callbacks <- Map.empty
         window.Hide()
 
+    let snoozeAll () =
+        for r in reminders do
+            match Map.tryFind r.Id callbacks with
+            | Some cb -> cb (Snooze (r.Start.AddMinutes(-snoozeLeadMinutes)))
+            | None -> ()
+        reminders <- ReminderList.empty
+        callbacks <- Map.empty
+        window.Hide()
+
     do
         window.Title <- "Reminders"
         window.WindowStyle <- WindowStyle.SingleBorderWindow
-        // CanMinimize gives a minimize button (no maximize). The title-bar X
-        // is repurposed to minimise too (see Closing below), so pending
-        // reminders are never lost by closing the window.
+        // CanMinimize gives a minimize button (no maximize). The minimize
+        // button pushes the window aside (reminders stay pending), while the
+        // title-bar X is repurposed to snooze-all (see Closing below).
         window.ResizeMode <- ResizeMode.CanMinimize
         window.ShowInTaskbar <- true
         window.Topmost <- keepOnTop
@@ -269,13 +291,20 @@ type ReminderWindow() =
         window.Resources.["ButtonHoverBg"] <- brush palette.ButtonHover
         scroll.MaxHeight <- SystemParameters.WorkArea.Height * 0.6
         dismissAllButton.Click.Add(fun _ -> dismissAll ())
-        // Repurpose the title-bar X: minimise instead of closing, unless the
-        // app is shutting down. Pending reminders stay and pop back up on the
-        // next alert.
+        snoozeAllButton.Click.Add(fun _ -> snoozeAll ())
+        // Repurpose the title-bar X: snooze-all instead of closing, unless the
+        // app is shutting down. Each pending reminder is re-armed for 2 minutes
+        // before its start and the window hides.
         window.Closing.Add(fun e ->
             if not shuttingDown then
                 e.Cancel <- true
-                window.WindowState <- WindowState.Minimized)
+                snoozeAll ())
+        countdownTimer.Tick.Add(fun _ ->
+            if window.IsVisible
+               && window.WindowState <> WindowState.Minimized
+               && not (ReminderList.isEmpty reminders) then
+                render ())
+        countdownTimer.Start()
         window.Content <- shell
 
     let showAndFlash () =
@@ -308,7 +337,8 @@ type ReminderWindow() =
         window.Topmost <- v
 
     member _.Close() : unit =
-        // Bypass the minimise-on-close handler so the window really closes
+        // Bypass the snooze-all-on-close handler so the window really closes
         // when the app is exiting.
         shuttingDown <- true
+        try countdownTimer.Stop() with _ -> ()
         try window.Close() with _ -> ()

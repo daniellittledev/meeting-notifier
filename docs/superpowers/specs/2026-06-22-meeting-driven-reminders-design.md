@@ -3,6 +3,14 @@
 **Date:** 2026-06-22
 **Status:** Approved
 
+> **Addendum (2026-06-23):** Reminder rows now also show a live "time until" countdown
+> (e.g. `10:30 AM · in 5 mins · Microsoft Teams Meeting`), refreshed every 30s while the
+> window is open. Snooze (per-row and the new "Snooze all" button) re-reminds at 2 minutes
+> before the meeting start rather than for a fixed duration, so `AlertAction.Snooze` now
+> carries an absolute `DateTimeOffset` and `AlertEngine.markSnoozedUntil` is used. The
+> title-bar X now snoozes-all instead of minimising; the minimize button still pushes the
+> window aside with reminders pending.
+
 ## Problem
 
 Three related changes to how reminders fire and behave:

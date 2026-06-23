@@ -45,3 +45,16 @@ module ReminderList =
     let dismissAll (_: ReminderList) : ReminderList = empty
 
     let isEmpty (list: ReminderList) = List.isEmpty list
+
+    /// Human-friendly "time until start" for a reminder row, e.g. "in 5 mins".
+    /// Partial minutes round up (4m30s reads as "in 5 mins") and a start that
+    /// has already passed reads as "now".
+    let timeUntilText (now: DateTimeOffset) (start: DateTimeOffset) : string =
+        let mins = int (ceil (start - now).TotalMinutes)
+        let plural n unit = if n = 1 then sprintf "%d %s" n unit else sprintf "%d %ss" n unit
+        if mins <= 0 then "now"
+        elif mins < 60 then sprintf "in %s" (plural mins "min")
+        else
+            let h, m = mins / 60, mins % 60
+            if m = 0 then sprintf "in %s" (plural h "hr")
+            else sprintf "in %s %s" (plural h "hr") (plural m "min")

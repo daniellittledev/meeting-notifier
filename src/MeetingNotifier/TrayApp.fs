@@ -237,10 +237,10 @@ module TrayApp =
                     Process.Start(ProcessStartInfo(url, UseShellExecute = true))
                     |> ignore
                 with _ -> ()
-            | Snooze mins ->
-                let now = DateTimeOffset.Now
-                updateState (AlertEngine.markSnoozed now pa.Meeting.Id mins)
-            | Dismiss -> ()
+            | Snooze until ->
+                updateState (AlertEngine.markSnoozedUntil pa.Meeting.Id until)
+            | Dismiss ->
+                updateState (AlertEngine.markDismissed pa.Meeting.Id)
 
         let runTick () =
             async {

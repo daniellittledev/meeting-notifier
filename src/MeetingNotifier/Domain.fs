@@ -32,21 +32,29 @@ module Domain =
     type AlertKey = { Meeting: MeetingId; Threshold: AlertThreshold }
 
     /// Alert-engine state: which (meeting, threshold) pairs have already
-    /// been fired, and which meetings are snoozed until when.
+    /// been fired, which meetings are snoozed until when, and which meetings
+    /// the user has dismissed (so no further thresholds fire for them).
     type AlertState =
         { Fired: Set<AlertKey>
-          Snoozed: Map<MeetingId, DateTimeOffset> }
+          Snoozed: Map<MeetingId, DateTimeOffset>
+          Dismissed: Set<MeetingId> }
 
     module AlertState =
-        let empty = { Fired = Set.empty; Snoozed = Map.empty }
+        let empty =
+            { Fired = Set.empty
+              Snoozed = Map.empty
+              Dismissed = Set.empty }
 
     /// A single alert that needs to be delivered on this tick.
     type PendingAlert =
         { Meeting: Meeting
           Threshold: AlertThreshold }
 
-    /// The user action taken on a toast notification.
+    /// The user action taken on a toast notification. Snooze carries the
+    /// absolute time to re-remind at (the button always targets a couple of
+    /// minutes before the meeting start) rather than a duration, so it is
+    /// immune to clock skew between the UI click and the next poll tick.
     type AlertAction =
         | Join of url: string
-        | Snooze of minutes: int
+        | Snooze of until: DateTimeOffset
         | Dismiss

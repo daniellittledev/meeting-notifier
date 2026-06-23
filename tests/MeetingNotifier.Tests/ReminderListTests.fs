@@ -65,3 +65,28 @@ let ``dismissAll empties the list`` () =
         |> ReminderList.add (pending "m1" "First" None)
         |> ReminderList.dismissAll
     ReminderList.isEmpty list |> should be True
+
+[<Fact>]
+let ``timeUntilText renders whole minutes`` () =
+    ReminderList.timeUntilText now (now + TimeSpan.FromMinutes 5.0)
+    |> should equal "in 5 mins"
+
+[<Fact>]
+let ``timeUntilText rounds partial minutes up`` () =
+    ReminderList.timeUntilText now (now + TimeSpan.FromSeconds 90.0)
+    |> should equal "in 2 mins"
+
+[<Fact>]
+let ``timeUntilText uses the singular for one minute`` () =
+    ReminderList.timeUntilText now (now + TimeSpan.FromMinutes 1.0)
+    |> should equal "in 1 min"
+
+[<Fact>]
+let ``timeUntilText says now once the meeting has started`` () =
+    ReminderList.timeUntilText now (now - TimeSpan.FromMinutes 1.0)
+    |> should equal "now"
+
+[<Fact>]
+let ``timeUntilText renders hours and minutes`` () =
+    ReminderList.timeUntilText now (now + TimeSpan.FromMinutes 65.0)
+    |> should equal "in 1 hr 5 mins"

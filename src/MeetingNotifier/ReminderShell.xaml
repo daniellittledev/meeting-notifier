@@ -36,7 +36,11 @@
     <StackPanel x:Name="RowsPanel" Margin="0,2,0,8" />
   </ScrollViewer>
   <Border Grid.Row="1" Background="{DynamicResource HeaderBg}" Padding="10,8">
-    <Button x:Name="DismissAllButton" Content="Dismiss all"
-            HorizontalAlignment="Right" Style="{StaticResource FlatButton}" />
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+      <Button x:Name="SnoozeAllButton" Content="Snooze all"
+              Margin="0,0,8,0" Style="{StaticResource FlatButton}" />
+      <Button x:Name="DismissAllButton" Content="Dismiss all"
+              Style="{StaticResource FlatButton}" />
+    </StackPanel>
   </Border>
 </Grid>
