@@ -50,16 +50,17 @@ module Notifications =
                         with _ -> None
             with _ -> None
 
-        /// Extract `alert.wav` from embedded resources into a temp file so
-        /// NAudio's reader can stream from disk. The temp file name is
-        /// stamped with the assembly version so a new build (potentially
-        /// shipping a different chime) doesn't keep replaying a stale
-        /// extraction left behind by an older version.
-        let private embeddedWavPath () =
+        /// Extract an embedded `.wav` into a temp file so NAudio's reader can
+        /// stream from disk. `wavFileName` is the resource's file name (e.g.
+        /// `alert.wav`, `chime.wav`). The temp file name is stamped with the
+        /// assembly version so a new build (potentially shipping a different
+        /// sound) doesn't keep replaying a stale extraction left behind by an
+        /// older version.
+        let private embeddedWavPath (wavFileName: string) =
             let asm = Assembly.GetExecutingAssembly()
             let resourceName =
                 asm.GetManifestResourceNames()
-                |> Array.tryFind (fun n -> n.EndsWith "alert.wav")
+                |> Array.tryFind (fun n -> n.EndsWith wavFileName)
             match resourceName with
             | None -> None
             | Some name ->
@@ -70,18 +71,19 @@ module Notifications =
                 let tempPath =
                     Path.Combine(
                         Path.GetTempPath(),
-                        sprintf "meeting-notifier-alert-%s.wav" version)
+                        sprintf "meeting-notifier-%s-%s" version wavFileName)
                 if not (File.Exists tempPath) then
                     use rs = asm.GetManifestResourceStream name
                     use fs = File.Create tempPath
                     rs.CopyTo fs
                 Some tempPath
 
-        /// Fire-and-forget playback at the configured volume (0-100).
-        let play (cfg: Config.AppConfig) =
+        /// Fire-and-forget playback of the named embedded `.wav` at the
+        /// configured volume (0-100).
+        let play (cfg: Config.AppConfig) (wavFileName: string) =
             System.Threading.Tasks.Task.Run(fun () ->
                 try
-                    match embeddedWavPath () with
+                    match embeddedWavPath wavFileName with
                     | None -> ()
                     | Some wav ->
                         match pickDevice cfg.AudioDeviceName with
@@ -102,14 +104,27 @@ module Notifications =
 
     // ============ Unified fire function ============
 
+    /// The friendly short tone played for earlier reminders.
+    let [<Literal>] ChimeWav = "chime.wav"
+    /// The attention-grabbing sound reserved for the final reminder.
+    let [<Literal>] AlertWav = "alert.wav"
+
+    /// Is this the always-on final reminder (the threshold matching
+    /// `FinalReminderMinutes`) rather than an earlier meeting-driven one?
+    let isFinalReminder (cfg: Config.AppConfig) (pa: PendingAlert) : bool =
+        pa.Threshold = AlertThreshold cfg.FinalReminderMinutes
+
     /// Decide whether this alert should chime. Sound must be enabled overall;
-    /// when `SoundOnFinalOnly` is set, only the final reminder (the threshold
-    /// matching `FinalReminderMinutes`) chimes while earlier ones stay silent.
-    /// Pure so the truth table can be unit-tested.
+    /// when `SoundOnFinalOnly` is set, only the final reminder chimes while
+    /// earlier ones stay silent. Pure so the truth table can be unit-tested.
     let shouldChime (cfg: Config.AppConfig) (pa: PendingAlert) : bool =
-        cfg.SoundEnabled
-        && (not cfg.SoundOnFinalOnly
-            || pa.Threshold = AlertThreshold cfg.FinalReminderMinutes)
+        cfg.SoundEnabled && (not cfg.SoundOnFinalOnly || isFinalReminder cfg pa)
+
+    /// Which embedded sound this alert plays: the current attention-grabbing
+    /// `alert.wav` for the final reminder, and a friendly short `chime.wav`
+    /// for earlier reminders.
+    let soundFor (cfg: Config.AppConfig) (pa: PendingAlert) : string =
+        if isFinalReminder cfg pa then AlertWav else ChimeWav
 
     /// Fire the alert: chime (when `shouldChime`) on a worker thread, and a
     /// row added to the singleton reminders window (which shows + flashes).
@@ -120,5 +135,5 @@ module Notifications =
         (pa: PendingAlert)
         (onAction: AlertAction -> unit)
         =
-        if shouldChime cfg pa then Audio.play cfg
+        if shouldChime cfg pa then Audio.play cfg (soundFor cfg pa)
         window.AddReminder(pa, onAction)

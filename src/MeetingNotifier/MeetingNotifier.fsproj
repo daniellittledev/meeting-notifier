@@ -38,6 +38,7 @@
 
   <ItemGroup>
     <EmbeddedResource Include="alert.wav" />
+    <EmbeddedResource Include="chime.wav" />
     <Page Remove="ReminderShell.xaml" />
     <EmbeddedResource Include="ReminderShell.xaml" />
     <Content Include="appicon.ico">
