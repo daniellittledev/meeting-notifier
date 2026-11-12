@@ -151,12 +151,13 @@ its own; an empty section is hidden, and **Snooze all** only appears when
 there are meetings.
 
 Email reminders need the `Mail.Read` permission on your app registration.
-It's requested separately from the calendar's `Calendars.Read`, and only
-when at least one rule is configured, so a missing mail consent never stops
-meeting alerts. The first launch after adding rules asks once for consent;
-if that's declined (or your tenant needs an admin to grant it), the tray
-indicator shows **Not connected** with an `Email:` reason and the app won't
-keep prompting. Use **Re-authenticate...** to try again.
+When rules are configured it's consented in the **same sign-in prompt** as
+the calendar (or in one prompt the first time, if you'd already signed in
+before adding rules). Tokens are still requested separately, so a missing
+mail consent never stops meeting alerts: if the combined prompt fails (e.g.
+your tenant needs an admin to approve `Mail.Read`), the app falls back to a
+calendar-only sign-in, the tray indicator shows **Not connected** with an
+`Email:` reason, and it won't keep prompting. Use **Re-authenticate...** to try again.
 
 Configuration is read once at launch, so **edits only take effect after you
 restart Meeting Notifier**. The Settings menu item reminds you of this when

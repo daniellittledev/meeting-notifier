@@ -116,9 +116,10 @@ module GraphClient =
         // set when EVERY lookup succeeded, so a transient failure can never
         // leave e.g. Sent Items out of the set.
         let mutable excludedCache : (Set<string> * DateTimeOffset) option = None
-        // Mail.Read may need its own consent. Prompt for it at most once per
-        // session (and only once the calendar sign-in has created an
-        // account), so a refused consent can't pop the browser every poll.
+        // Mail.Read is normally consented in the calendar's sign-in prompt.
+        // When it wasn't (signed in before any rules existed), prompt for it
+        // at most once per session, so a refusal can't pop the browser every
+        // poll.
         let mutable interactiveTried = false
 
         // Immutable ids survive a message being moved between folders, so
@@ -131,14 +132,20 @@ module GraphClient =
                     return! token.GetTokenFor(Auth.mailScopes, false)
                 with Auth.SignInRequired _ ->
                     let! hasAccount = token.HasCachedAccount()
-                    if hasAccount && not interactiveTried then
-                        interactiveTried <- true
-                        return! token.GetTokenFor(Auth.mailScopes, true)
-                    else
+                    if not hasAccount then
+                        // The calendar's first sign-in (which also asks for
+                        // Mail.Read) hasn't finished yet; don't open a second
+                        // prompt alongside it.
+                        return failwith "Waiting for sign-in to finish."
+                    elif token.ExtraConsentDeclined || interactiveTried then
                         return
                             failwith (
                                 "Mail.Read isn't consented yet. Use Re-authenticate... in the tray "
                                 + "menu, or ask an admin to grant it.")
+                    else
+                        // Signed in before rules existed: ask for Mail.Read once.
+                        interactiveTried <- true
+                        return! token.GetTokenFor(Auth.mailScopes, true)
             }
 
         /// Every folder in the mailbox (breadth-first over childFolders).

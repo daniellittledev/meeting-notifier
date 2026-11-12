@@ -37,14 +37,46 @@ module Auth =
     /// didn't allow (e.g. a scope the user hasn't consented to yet).
     exception SignInRequired of string
 
-    type TokenProvider(app: IPublicClientApplication) =
+    /// `extraConsent` scopes are consented to in the SAME browser prompt as
+    /// any interactive sign-in (e.g. Mail.Read alongside the calendar), so the
+    /// user signs in once. Tokens are still requested per resource.
+    type TokenProvider(app: IPublicClientApplication, extraConsent: string[]) =
+
+        // Set when a combined prompt failed (e.g. Mail.Read needs admin
+        // approval, or the user backed out): from then on sign-in asks for
+        // the requested scopes only, so the calendar can't be blocked by mail.
+        let mutable extraConsentDeclined = false
+
+        let prompt (scopes: string[]) (extras: string[]) (ct: CancellationToken) =
+            let builder =
+                app.AcquireTokenInteractive(scopes)
+                    .WithUseEmbeddedWebView(false)
+                    .WithSystemWebViewOptions(SystemWebViewOptions())
+            let builder =
+                if Array.isEmpty extras then builder
+                else builder.WithExtraScopesToConsent(extras)
+            builder.ExecuteAsync(ct) |> Async.AwaitTask
 
         let interactive (scopes: string[]) (ct: CancellationToken) =
-            app.AcquireTokenInteractive(scopes)
-                .WithUseEmbeddedWebView(false)
-                .WithSystemWebViewOptions(SystemWebViewOptions())
-                .ExecuteAsync(ct)
-            |> Async.AwaitTask
+            async {
+                let extras =
+                    if extraConsentDeclined then [||]
+                    else extraConsent |> Array.except scopes
+                if Array.isEmpty extras then
+                    return! prompt scopes [||] ct
+                else
+                    try
+                        return! prompt scopes extras ct
+                    with
+                    | :? MsalException as ex ->
+                        extraConsentDeclined <- true
+                        // Respect an explicit cancel; otherwise retry right
+                        // away without the extra scopes.
+                        if ex.ErrorCode = MsalError.AuthenticationCanceledError then
+                            return raise ex
+                        else
+                            return! prompt scopes [||] ct
+            }
 
         /// Silently refresh a token for `scopes`, falling back to the system
         /// browser only when `allowInteractive` is set; otherwise a needed
@@ -84,6 +116,10 @@ module Auth =
         member this.GetAccessToken(?ct: CancellationToken) : Async<string> =
             this.GetTokenFor(calendarScopes, true, ?ct = ct)
 
+        /// True once a combined sign-in prompt failed, so callers shouldn't
+        /// prompt for the extra scopes again this session.
+        member _.ExtraConsentDeclined = extraConsentDeclined
+
         member _.HasCachedAccount() : Async<bool> =
             async {
                 let! accounts = app.GetAccountsAsync() |> Async.AwaitTask
@@ -93,6 +129,7 @@ module Auth =
         /// Remove all cached accounts — used by a "Sign out" menu action.
         member _.SignOut() : Async<unit> =
             async {
+                extraConsentDeclined <- false
                 let! accounts = app.GetAccountsAsync() |> Async.AwaitTask
                 for acc in accounts do
                     do! app.RemoveAsync(acc) |> Async.AwaitTask
@@ -113,5 +150,10 @@ module Auth =
                     .WithRedirectUri("http://localhost")
                     .Build()
             do! attachCache app
-            return TokenProvider(app)
+            // Consent to Mail.Read in the first sign-in when there are email
+            // rules, so there's one prompt, not two.
+            let extra =
+                if List.isEmpty (EmailRules.activeRules cfg.EmailRules) then [||]
+                else mailScopes
+            return TokenProvider(app, extra)
         }
