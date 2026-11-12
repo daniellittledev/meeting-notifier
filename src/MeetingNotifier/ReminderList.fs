@@ -8,12 +8,20 @@ open MeetingNotifier.Domain
 /// net8.0 test TFM (source-linked like Domain/AlertEngine).
 module ReminderList =
 
+    /// Identifies a row: meetings and emails live in separate id spaces.
+    type ReminderKey =
+        | MeetingKey of MeetingId
+        | EmailKey of EmailId
+
+    type ReminderKind =
+        | MeetingReminder of start: DateTimeOffset * joinUrl: string option
+        | EmailReminder of received: DateTimeOffset * webLink: string option
+
     type Reminder =
-        { Id: MeetingId
+        { Key: ReminderKey
           Subject: string
-          Start: DateTimeOffset
-          JoinUrl: string option
-          Subtitle: string }
+          Subtitle: string
+          Kind: ReminderKind }
 
     type ReminderList = Reminder list
 
@@ -27,20 +35,62 @@ module ReminderList =
 
     let private ofPending (pa: PendingAlert) : Reminder =
         let m = pa.Meeting
-        { Id = m.Id
+        { Key = MeetingKey m.Id
           Subject = m.Subject
-          Start = m.Start
-          JoinUrl = m.JoinUrl
-          Subtitle = subtitleOf m }
+          Subtitle = subtitleOf m
+          Kind = MeetingReminder(m.Start, m.JoinUrl) }
 
-    /// Add a reminder, replacing any existing row for the same meeting so
-    /// the same meeting firing at multiple thresholds never duplicates.
+    let private senderOf (e: Email) =
+        if String.IsNullOrWhiteSpace e.FromName then e.FromAddress else e.FromName
+
+    let private ofEmailAlert (ea: EmailAlert) : Reminder =
+        let e = ea.Email
+        { Key = EmailKey e.Id
+          Subject = e.Subject
+          Subtitle =
+            [ senderOf e; ea.RuleName ]
+            |> List.filter (String.IsNullOrWhiteSpace >> not)
+            |> String.concat " · "
+          Kind = EmailReminder(e.Received, e.WebLink) }
+
+    let private upsert (r: Reminder) (list: ReminderList) : ReminderList =
+        (list |> List.filter (fun x -> x.Key <> r.Key)) @ [ r ]
+
+    /// Add a meeting reminder, replacing any existing row for the same
+    /// meeting so the same meeting firing at multiple thresholds never
+    /// duplicates.
     let add (pa: PendingAlert) (list: ReminderList) : ReminderList =
-        let r = ofPending pa
-        (list |> List.filter (fun x -> x.Id <> r.Id)) @ [ r ]
+        upsert (ofPending pa) list
 
-    let remove (id: MeetingId) (list: ReminderList) : ReminderList =
-        list |> List.filter (fun x -> x.Id <> id)
+    /// Add an email reminder (de-duplicated by message id).
+    let addEmail (ea: EmailAlert) (list: ReminderList) : ReminderList =
+        upsert (ofEmailAlert ea) list
+
+    let remove (key: ReminderKey) (list: ReminderList) : ReminderList =
+        list |> List.filter (fun x -> x.Key <> key)
+
+    let isMeeting (r: Reminder) =
+        match r.Kind with
+        | MeetingReminder _ -> true
+        | EmailReminder _ -> false
+
+    let meetings (list: ReminderList) : ReminderList = list |> List.filter isMeeting
+
+    let emails (list: ReminderList) : ReminderList = list |> List.filter (isMeeting >> not)
+
+    let private sortKey (r: Reminder) =
+        match r.Kind with
+        | MeetingReminder(start, _) -> start
+        | EmailReminder(received, _) -> received
+
+    /// Meeting rows for display: soonest first.
+    let meetingsBySoonest (list: ReminderList) : ReminderList =
+        meetings list |> List.sortBy sortKey
+
+    /// Email rows for display: newest first, so a fresh arrival is visible
+    /// even when the section is scrolled.
+    let emailsByNewest (list: ReminderList) : ReminderList =
+        emails list |> List.sortByDescending sortKey
 
     let dismissAll (_: ReminderList) : ReminderList = empty
 
@@ -58,3 +108,12 @@ module ReminderList =
             let h, m = mins / 60, mins % 60
             if m = 0 then sprintf "in %s" (plural h "hr")
             else sprintf "in %s %s" (plural h "hr") (plural m "min")
+
+    /// Human-friendly "how long ago" for an email row, e.g. "5 mins ago".
+    let timeAgoText (now: DateTimeOffset) (received: DateTimeOffset) : string =
+        let mins = int (floor (now - received).TotalMinutes)
+        let plural n unit = if n = 1 then sprintf "%d %s" n unit else sprintf "%d %ss" n unit
+        if mins < 1 then "just now"
+        elif mins < 60 then sprintf "%s ago" (plural mins "min")
+        elif mins < 24 * 60 then sprintf "%s ago" (plural (mins / 60) "hr")
+        else sprintf "%s ago" (plural (mins / (24 * 60)) "day")

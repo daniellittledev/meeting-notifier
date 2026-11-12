@@ -22,6 +22,8 @@
   <ItemGroup>
     <Compile Include="Domain.fs" />
     <Compile Include="Config.fs" />
+    <Compile Include="EmailRules.fs" />
+    <Compile Include="EmailStore.fs" />
     <Compile Include="Auth.fs" />
     <Compile Include="GraphParsing.fs" />
     <Compile Include="GraphClient.fs" />
@@ -38,6 +40,7 @@
 
   <ItemGroup>
     <EmbeddedResource Include="alert.wav" />
+    <EmbeddedResource Include="email.wav" />
     <Page Remove="ReminderShell.xaml" />
     <EmbeddedResource Include="ReminderShell.xaml" />
     <Content Include="appicon.ico">

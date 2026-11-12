@@ -93,3 +93,61 @@ let ``buildUrl emits the UTC window and select/top parameters`` () =
     url |> should haveSubstring "startDateTime=2026-04-15T10:00:00Z"
     url |> should haveSubstring "endDateTime=2026-04-16T10:00:00Z"
     url |> should haveSubstring "$top=50"
+
+[<Fact>]
+let ``parseMessagesPage maps sender, received time, link and folder`` () =
+    let body =
+        """{ "value": [
+              { "id": "AAMk1",
+                "subject": "[org/repo] Review requested on #42",
+                "from": { "emailAddress": { "name": "GitHub", "address": "notifications@github.com" } },
+                "receivedDateTime": "2026-04-15T10:05:00Z",
+                "webLink": "https://outlook.office365.com/owa/?ItemID=AAMk1",
+                "parentFolderId": "inbox-id" } ],
+            "@odata.nextLink": "https://graph.microsoft.com/next" }"""
+    let emails, next = GraphParsing.parseMessagesPage body
+    next |> should equal (Some "https://graph.microsoft.com/next")
+    let folder, e = emails.Head
+    folder |> should equal "inbox-id"
+    e.Id |> should equal (EmailId "AAMk1")
+    e.FromName |> should equal "GitHub"
+    e.FromAddress |> should equal "notifications@github.com"
+    e.Received |> should equal (DateTimeOffset(2026, 4, 15, 10, 5, 0, TimeSpan.Zero))
+    e.WebLink |> should equal (Some "https://outlook.office365.com/owa/?ItemID=AAMk1")
+
+[<Fact>]
+let ``parseMessagesPage tolerates a missing sender and subject`` () =
+    let body =
+        """{ "value": [ { "id": "AAMk2", "receivedDateTime": "2026-04-15T10:05:00Z" } ] }"""
+    let emails, _ = GraphParsing.parseMessagesPage body
+    let _, e = emails.Head
+    e.Subject |> should equal "(no subject)"
+    e.FromAddress |> should equal ""
+    e.WebLink |> should equal None
+
+[<Fact>]
+let ``buildMessagesUrl filters by received time and escapes the filter`` () =
+    let url = GraphParsing.buildMessagesUrl (DateTimeOffset(2026, 4, 15, 10, 0, 0, TimeSpan.Zero))
+    url |> should startWith "https://graph.microsoft.com/v1.0/me/messages?$filter="
+    url |> should haveSubstring "receivedDateTime%20ge%202026-04-15T10%3A00%3A00Z"
+    url |> should haveSubstring "isDraft%20eq%20false"
+    url |> should haveSubstring "$orderby=receivedDateTime asc"
+
+[<Fact>]
+let ``parseFoldersPage maps folders with child counts`` () =
+    let body =
+        """{ "value": [
+              { "id": "f1", "displayName": "Deleted Items", "parentFolderId": "root", "childFolderCount": 2 },
+              { "id": "f2", "displayName": null, "parentFolderId": "root", "childFolderCount": 0 } ],
+            "@odata.nextLink": "https://graph.microsoft.com/next" }"""
+    let folders, next = GraphParsing.parseFoldersPage body
+    next |> should equal (Some "https://graph.microsoft.com/next")
+    folders
+    |> should equal
+        [ { FolderId = "f1"; DisplayName = "Deleted Items"; ParentFolderId = "root" }, 2
+          { FolderId = "f2"; DisplayName = ""; ParentFolderId = "root" }, 0 ]
+
+[<Fact>]
+let ``buildChildFoldersUrl escapes the folder id`` () =
+    GraphParsing.buildChildFoldersUrl "AAMk=/x"
+    |> should haveSubstring "/mailFolders/AAMk%3D%2Fx/childFolders"

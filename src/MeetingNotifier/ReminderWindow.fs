@@ -111,12 +111,27 @@ type ReminderWindow() =
     // re-reminds at.
     let snoozeLeadMinutes = 2.0
 
+    // Row geometry. Rows are a fixed height so each section can cap itself
+    // at exactly `maxVisibleRows` rows before it starts scrolling.
+    let windowWidth = 480.0
+    let rowHeight = 56.0
+    let rowGap = 6.0
+    let listBottomPad = 8.0
+    let maxVisibleRows = 5
+    // Title bar + footer, and each section's header, for the fit-to-screen
+    // calculation when both sections are full.
+    let chromeHeight = 40.0 + 48.0
+    let sectionHeaderHeight = 32.0
+
     let palette = ReminderTheme.current ()
     let brush (c: Color) = SolidColorBrush c :> Brush
 
     let window = Window()
     let mutable reminders : ReminderList.ReminderList = ReminderList.empty
-    let mutable callbacks : Map<MeetingId, AlertAction -> unit> = Map.empty
+    let mutable meetingCallbacks : Map<MeetingId, AlertAction -> unit> = Map.empty
+    // One handler for all email rows (set by the tray app), so a batch
+    // action like "Dismiss all" reaches it as a single Done.
+    let mutable onEmailAction : EmailAction -> unit = ignore
     let mutable keepOnTop = true
     let mutable hwnd = IntPtr.Zero
     // Set only during app shutdown so the Closing handler lets the window
@@ -132,8 +147,15 @@ type ReminderWindow() =
         XamlReader.Load s :?> FrameworkElement
 
     let shell = loadShell ()
-    let panel = shell.FindName "RowsPanel" :?> StackPanel
-    let scroll = shell.FindName "RowsScroll" :?> ScrollViewer
+    let find name = shell.FindName name
+    let meetingsHeader = find "MeetingsHeader" :?> FrameworkElement
+    let meetingsCount = find "MeetingsCount" :?> TextBlock
+    let meetingsScroll = find "MeetingsScroll" :?> ScrollViewer
+    let meetingsPanel = find "MeetingsPanel" :?> StackPanel
+    let emailsHeader = find "EmailsHeader" :?> FrameworkElement
+    let emailsCount = find "EmailsCount" :?> TextBlock
+    let emailsScroll = find "EmailsScroll" :?> ScrollViewer
+    let emailsPanel = find "EmailsPanel" :?> StackPanel
     let dismissAllButton = shell.FindName "DismissAllButton" :?> Button
     let snoozeAllButton = shell.FindName "SnoozeAllButton" :?> Button
 
@@ -161,14 +183,60 @@ type ReminderWindow() =
         window.Left <- wa.Right - window.ActualWidth - 12.0
         window.Top <- wa.Bottom - window.ActualHeight - 12.0
 
-    let rec render () =
-        panel.Children.Clear()
-        for r in reminders do
-            panel.Children.Add(buildRow r) |> ignore
+    let meetingCallback id =
+        Map.tryFind id meetingCallbacks |> Option.defaultValue ignore
 
-    and removeReminder (id: MeetingId) =
-        reminders <- ReminderList.remove id reminders
-        callbacks <- Map.remove id callbacks
+    let forgetCallback (key: ReminderList.ReminderKey) =
+        match key with
+        | ReminderList.MeetingKey id -> meetingCallbacks <- Map.remove id meetingCallbacks
+        | ReminderList.EmailKey _ -> ()
+
+    let emailIds (rows: ReminderList.ReminderList) =
+        rows
+        |> List.choose (fun r ->
+            match r.Key with
+            | ReminderList.EmailKey id -> Some id
+            | ReminderList.MeetingKey _ -> None)
+
+    /// Max height of one section's scroller: `maxVisibleRows` rows, shrunk
+    /// evenly if the visible sections wouldn't otherwise fit on screen.
+    let sectionCap (visibleSections: int) =
+        let fullCap =
+            float maxVisibleRows * (rowHeight + rowGap) + listBottomPad
+        let available =
+            SystemParameters.WorkArea.Height * 0.9
+            - chromeHeight
+            - sectionHeaderHeight * float visibleSections
+        let share = available / float (max 1 visibleSections)
+        max (rowHeight + rowGap + listBottomPad) (min fullCap share)
+
+    let rec render () =
+        let meetings = ReminderList.meetingsBySoonest reminders
+        let emails = ReminderList.emailsByNewest reminders
+        let fill (panel: StackPanel) (rows: ReminderList.ReminderList) =
+            panel.Children.Clear()
+            for r in rows do
+                panel.Children.Add(buildRow r) |> ignore
+        let show (header: FrameworkElement) (scroll: ScrollViewer) (count: TextBlock) rows =
+            let v = if List.isEmpty rows then Visibility.Collapsed else Visibility.Visible
+            header.Visibility <- v
+            scroll.Visibility <- v
+            count.Text <- string (List.length rows)
+        fill meetingsPanel meetings
+        fill emailsPanel emails
+        show meetingsHeader meetingsScroll meetingsCount meetings
+        show emailsHeader emailsScroll emailsCount emails
+        let cap =
+            sectionCap ([ meetings; emails ] |> List.filter (List.isEmpty >> not) |> List.length)
+        meetingsScroll.MaxHeight <- cap
+        emailsScroll.MaxHeight <- cap
+        // Snooze only applies to meetings; hide it when only emails remain.
+        snoozeAllButton.Visibility <-
+            if List.isEmpty meetings then Visibility.Collapsed else Visibility.Visible
+
+    and removeReminder (key: ReminderList.ReminderKey) =
+        reminders <- ReminderList.remove key reminders
+        forgetCallback key
         if ReminderList.isEmpty reminders then
             window.Hide()
         else
@@ -176,25 +244,25 @@ type ReminderWindow() =
             position ()
 
     and buildRow (r: ReminderList.Reminder) : UIElement =
-        let onAction =
-            match Map.tryFind r.Id callbacks with
-            | Some cb -> cb
-            | None -> ignore
-
         let border = Border()
         border.Background <- brush palette.Surface
         border.CornerRadius <- CornerRadius 6.0
-        border.Margin <- Thickness(8.0, 6.0, 8.0, 0.0)
-        border.Padding <- Thickness 10.0
+        border.Margin <- Thickness(8.0, rowGap, 8.0, 0.0)
+        border.Padding <- Thickness(10.0, 0.0, 6.0, 0.0)
+        border.Height <- rowHeight
 
         let grid = Grid()
         grid.ColumnDefinitions.Add(ColumnDefinition(Width = GridLength.Auto))
         grid.ColumnDefinitions.Add(ColumnDefinition(Width = GridLength(1.0, GridUnitType.Star)))
         grid.ColumnDefinitions.Add(ColumnDefinition(Width = GridLength.Auto))
 
+        let glyph =
+            match r.Kind with
+            | ReminderList.MeetingReminder _ -> "\uE787" // calendar glyph
+            | ReminderList.EmailReminder _ -> "\uE715" // mail glyph
         let icon =
             TextBlock(
-                Text = "", // calendar glyph
+                Text = glyph,
                 FontFamily = FontFamily "Segoe MDL2 Assets",
                 FontSize = 20.0,
                 Foreground = brush palette.Accent,
@@ -209,41 +277,58 @@ type ReminderWindow() =
                 FontWeight = FontWeights.SemiBold,
                 FontSize = 13.0,
                 Foreground = brush palette.Text,
-                TextTrimming = TextTrimming.CharacterEllipsis)
-        let timeStr = r.Start.ToLocalTime().ToString "h:mm tt"
-        let untilStr = ReminderList.timeUntilText DateTimeOffset.Now r.Start
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                ToolTip = r.Subject)
+        let timeParts =
+            match r.Kind with
+            | ReminderList.MeetingReminder(start, _) ->
+                [ start.ToLocalTime().ToString "h:mm tt"
+                  ReminderList.timeUntilText DateTimeOffset.Now start ]
+            | ReminderList.EmailReminder(received, _) ->
+                [ ReminderList.timeAgoText DateTimeOffset.Now received ]
         let subText =
-            [ timeStr; untilStr; r.Subtitle ]
+            timeParts @ [ r.Subtitle ]
             |> List.filter (String.IsNullOrEmpty >> not)
             |> String.concat " · "
         let subtitle =
-            TextBlock(Text = subText, FontSize = 12.0, Foreground = brush palette.Subtle)
+            TextBlock(
+                Text = subText,
+                FontSize = 12.0,
+                Foreground = brush palette.Subtle,
+                TextTrimming = TextTrimming.CharacterEllipsis)
         texts.Children.Add subject |> ignore
         texts.Children.Add subtitle |> ignore
         Grid.SetColumn(texts, 1)
 
         let actions = StackPanel(Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center)
-        match r.JoinUrl with
-        | Some url ->
-            let join = mkIconButton "" "Join" // video glyph
-            join.Click.Add(fun _ ->
-                onAction (Join url)
-                removeReminder r.Id)
-            actions.Children.Add join |> ignore
-        | None -> ()
+        let addButton glyph tip (onClick: unit -> unit) =
+            let b = mkIconButton glyph tip
+            b.Click.Add(fun _ -> onClick ())
+            actions.Children.Add b |> ignore
 
-        let snooze = mkIconButton "" "Snooze 2 min" // clock glyph
-        snooze.ToolTip <- "Snooze until 2 min before start"
-        snooze.Click.Add(fun _ ->
-            onAction (Snooze (r.Start.AddMinutes(-snoozeLeadMinutes)))
-            removeReminder r.Id)
-        actions.Children.Add snooze |> ignore
-
-        let dismiss = mkIconButton "" "Dismiss" // clear glyph
-        dismiss.Click.Add(fun _ ->
-            onAction Dismiss
-            removeReminder r.Id)
-        actions.Children.Add dismiss |> ignore
+        match r.Key, r.Kind with
+        | ReminderList.MeetingKey id, ReminderList.MeetingReminder(start, joinUrl) ->
+            let onAction = meetingCallback id
+            joinUrl
+            |> Option.iter (fun url ->
+                addButton "\uE714" "Join" (fun () -> // video glyph
+                    onAction (Join url)
+                    removeReminder r.Key))
+            addButton "\uE823" "Snooze until 2 min before start" (fun () -> // clock glyph
+                onAction (Snooze (start.AddMinutes(-snoozeLeadMinutes)))
+                removeReminder r.Key)
+            addButton "\uE894" "Dismiss" (fun () -> // clear glyph
+                onAction Dismiss
+                removeReminder r.Key)
+        | ReminderList.EmailKey id, ReminderList.EmailReminder(_, webLink) ->
+            // Opening keeps the row: it's a to-do until it's checked off.
+            webLink
+            |> Option.iter (fun url ->
+                addButton "\uE8A7" "Open in Outlook" (fun () -> onEmailAction (OpenEmail url))) // open-in-new-window glyph
+            addButton "\uE73E" "Done" (fun () -> // checkmark glyph
+                onEmailAction (Done [ id ])
+                removeReminder r.Key)
+        | _ -> ()
         Grid.SetColumn(actions, 2)
 
         grid.Children.Add icon |> ignore
@@ -252,23 +337,32 @@ type ReminderWindow() =
         border.Child <- grid
         border :> UIElement
 
+    /// Dismiss every row: meetings are dismissed and emails checked off.
     let dismissAll () =
-        for r in reminders do
-            match Map.tryFind r.Id callbacks with
-            | Some cb -> cb Dismiss
-            | None -> ()
+        meetingCallbacks |> Map.iter (fun _ cb -> cb Dismiss)
+        match emailIds reminders with
+        | [] -> ()
+        | ids -> onEmailAction (Done ids)
         reminders <- ReminderList.empty
-        callbacks <- Map.empty
+        meetingCallbacks <- Map.empty
         window.Hide()
 
+    /// Snooze every meeting row. Email rows can't be snoozed — they stay
+    /// until checked off — so if any remain the window is minimised to the
+    /// taskbar instead of hidden.
     let snoozeAll () =
-        for r in reminders do
-            match Map.tryFind r.Id callbacks with
-            | Some cb -> cb (Snooze (r.Start.AddMinutes(-snoozeLeadMinutes)))
-            | None -> ()
-        reminders <- ReminderList.empty
-        callbacks <- Map.empty
-        window.Hide()
+        for r in ReminderList.meetings reminders do
+            match r.Key, r.Kind with
+            | ReminderList.MeetingKey id, ReminderList.MeetingReminder(start, _) ->
+                meetingCallback id (Snooze (start.AddMinutes(-snoozeLeadMinutes)))
+            | _ -> ()
+        reminders <- ReminderList.emails reminders
+        meetingCallbacks <- Map.empty
+        if ReminderList.isEmpty reminders then
+            window.Hide()
+        else
+            render ()
+            window.WindowState <- WindowState.Minimized
 
     do
         window.Title <- "Reminders"
@@ -279,17 +373,18 @@ type ReminderWindow() =
         window.ResizeMode <- ResizeMode.CanMinimize
         window.ShowInTaskbar <- true
         window.Topmost <- keepOnTop
-        window.Width <- 380.0
+        window.Width <- windowWidth
         window.SizeToContent <- SizeToContent.Height
-        window.MaxHeight <- SystemParameters.WorkArea.Height * 0.6
+        // Sections cap themselves (see sectionCap); this is just a backstop.
+        window.MaxHeight <- SystemParameters.WorkArea.Height * 0.9
         window.ShowActivated <- true
         window.Background <- brush palette.WindowBg
         window.Resources.["WindowBg"] <- brush palette.WindowBg
         window.Resources.["HeaderBg"] <- brush palette.HeaderBg
         window.Resources.["TextBrush"] <- brush palette.Text
+        window.Resources.["SubtleBrush"] <- brush palette.Subtle
         window.Resources.["ButtonBg"] <- brush palette.ButtonBg
         window.Resources.["ButtonHoverBg"] <- brush palette.ButtonHover
-        scroll.MaxHeight <- SystemParameters.WorkArea.Height * 0.6
         dismissAllButton.Click.Add(fun _ -> dismissAll ())
         snoozeAllButton.Click.Add(fun _ -> snoozeAll ())
         // Repurpose the title-bar X: snooze-all instead of closing, unless the
@@ -299,6 +394,8 @@ type ReminderWindow() =
             if not shuttingDown then
                 e.Cancel <- true
                 snoozeAll ())
+        // Start in the empty state (sections and snooze-all hidden).
+        render ()
         countdownTimer.Tick.Add(fun _ ->
             if window.IsVisible
                && window.WindowState <> WindowState.Minimized
@@ -307,7 +404,11 @@ type ReminderWindow() =
         countdownTimer.Start()
         window.Content <- shell
 
-    let showAndFlash () =
+    /// Show the window and flash the taskbar. `activate` pops it to the
+    /// front and takes focus (meetings); without it the window is shown
+    /// behind the current app so a background email doesn't steal focus.
+    let showAndFlash (activate: bool) =
+        window.ShowActivated <- activate
         if not window.IsVisible then window.Show()
         // A minimised window is still IsVisible, so restore it explicitly so
         // the next reminder pops it back to the foreground.
@@ -316,19 +417,28 @@ type ReminderWindow() =
         hwnd <- WindowInteropHelper(window).Handle
         WindowInterop.setDarkTitleBar hwnd palette.IsDark
         position ()
-        // Pop to front once even when not pinned, then settle to the pref.
-        window.Topmost <- true
-        window.Activate() |> ignore
-        window.Topmost <- keepOnTop
+        if activate then
+            // Pop to front once even when not pinned, then settle to the pref.
+            window.Topmost <- true
+            window.Activate() |> ignore
+            window.Topmost <- keepOnTop
         WindowInterop.flash hwnd
 
     member _.AddReminder(pa: PendingAlert, onAction: AlertAction -> unit) : unit =
         reminders <- ReminderList.add pa reminders
-        callbacks <- Map.add pa.Meeting.Id onAction callbacks
+        meetingCallbacks <- Map.add pa.Meeting.Id onAction meetingCallbacks
         render ()
-        showAndFlash ()
+        showAndFlash true
 
-    member _.RemoveReminder(id: MeetingId) : unit = removeReminder id
+    member _.SetEmailActionHandler(handler: EmailAction -> unit) : unit =
+        onEmailAction <- handler
+
+    member _.AddEmail(ea: EmailAlert) : unit =
+        reminders <- ReminderList.addEmail ea reminders
+        render ()
+        showAndFlash false
+
+    member _.RemoveReminder(id: MeetingId) : unit = removeReminder (ReminderList.MeetingKey id)
 
     member _.DismissAll() : unit = dismissAll ()
 
