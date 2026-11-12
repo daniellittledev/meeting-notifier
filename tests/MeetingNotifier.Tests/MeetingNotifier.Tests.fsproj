@@ -19,6 +19,8 @@
              Link="_src\Config.fs" />
     <Compile Include="..\..\src\MeetingNotifier\EmailRules.fs"
              Link="_src\EmailRules.fs" />
+    <Compile Include="..\..\src\MeetingNotifier\EmailStore.fs"
+             Link="_src\EmailStore.fs" />
     <Compile Include="..\..\src\MeetingNotifier\GraphParsing.fs"
              Link="_src\GraphParsing.fs" />
     <Compile Include="..\..\src\MeetingNotifier\AlertEngine.fs"
@@ -28,6 +30,7 @@
     <Compile Include="AlertEngineTests.fs" />
     <Compile Include="ConfigTests.fs" />
     <Compile Include="EmailRulesTests.fs" />
+    <Compile Include="EmailStoreTests.fs" />
     <Compile Include="GraphParsingTests.fs" />
     <Compile Include="ReminderListTests.fs" />
     <Compile Include="Program.fs" />

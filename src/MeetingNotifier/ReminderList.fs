@@ -78,6 +78,20 @@ module ReminderList =
 
     let emails (list: ReminderList) : ReminderList = list |> List.filter (isMeeting >> not)
 
+    let private sortKey (r: Reminder) =
+        match r.Kind with
+        | MeetingReminder(start, _) -> start
+        | EmailReminder(received, _) -> received
+
+    /// Meeting rows for display: soonest first.
+    let meetingsBySoonest (list: ReminderList) : ReminderList =
+        meetings list |> List.sortBy sortKey
+
+    /// Email rows for display: newest first, so a fresh arrival is visible
+    /// even when the section is scrolled.
+    let emailsByNewest (list: ReminderList) : ReminderList =
+        emails list |> List.sortByDescending sortKey
+
     let dismissAll (_: ReminderList) : ReminderList = empty
 
     let isEmpty (list: ReminderList) = List.isEmpty list

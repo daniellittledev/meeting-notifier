@@ -58,8 +58,14 @@ module TrayApp =
         let mutable state = AlertState.empty
         let mutable lastSnapshot : Meeting list = []
         let emailRules = EmailRules.activeRules cfg.EmailRules
-        let mutable emailState =
-            EmailRules.initial DateTimeOffset.Now cfg.EmailLookbackMinutes
+        // Pending / checked-off emails and the cursor survive restarts.
+        let mutable emailStore =
+            if Option.isSome mailSource then
+                EmailStore.load () |> EmailStore.prune DateTimeOffset.Now
+            else EmailStore.empty
+        let mutable emailState : EmailRules.EmailState =
+            { Since = EmailStore.startSince DateTimeOffset.Now cfg.EmailLookbackMinutes emailStore
+              Seen = Map.empty }
         // A downloaded, ready-to-apply update, once a check has found one.
         let mutable preparedUpdate
             : (Velopack.UpdateManager * Velopack.UpdateInfo) option = None
@@ -246,16 +252,24 @@ module TrayApp =
             | Dismiss ->
                 updateState (AlertEngine.markDismissed pa.Meeting.Id)
 
-        let handleEmailAction (action: EmailAction) =
+        /// Apply a change to the email store and write it to disk. Callers
+        /// must hold `stateLock`.
+        let commitEmailStore (store: EmailStore.EmailStore) =
+            emailStore <- store
+            try EmailStore.save store
+            with ex -> eprintfn "saving email reminders failed: %s" ex.Message
+
+        let handleEmailAction (ea: EmailAlert) (action: EmailAction) =
             match action with
             | OpenEmail url ->
                 try
                     Process.Start(ProcessStartInfo(url, UseShellExecute = true))
                     |> ignore
                 with _ -> ()
-            // Nothing to record: an email is only ever alerted once (the
-            // cursor's Seen set), so removing the row is all Done needs.
-            | Done -> ()
+            // Remember it on disk so it never comes back, even after a restart.
+            | Done ->
+                lock stateLock (fun () ->
+                    commitEmailStore (EmailStore.markDone ea.Email.Id emailStore))
 
         /// Fetch new mail and surface any that match a rule. Returns the
         /// error message on failure so the status indicator can show it.
@@ -273,16 +287,25 @@ module TrayApp =
                     | Ok emails ->
                         let alerts =
                             lock stateLock (fun () ->
+                                // Skip anything already pending or checked
+                                // off in a previous session.
+                                let unknown =
+                                    emails
+                                    |> List.filter (fun e -> not (EmailStore.knows e.Id emailStore))
                                 let a, s' =
-                                    EmailRules.computeNew now emailRules emails emailState
+                                    EmailRules.computeNew now emailRules unknown emailState
                                 emailState <- s'
+                                emailStore
+                                |> EmailStore.addPending a
+                                |> EmailStore.withSince s'.Since
+                                |> commitEmailStore
                                 a)
                         // One ding per batch, not one per email.
                         alerts
                         |> List.iteri (fun i ea ->
                             postToUi (fun () ->
                                 Notifications.fireEmailAlert
-                                    cfg (getWindow ()) (i = 0) ea handleEmailAction))
+                                    cfg (getWindow ()) (i = 0) ea (handleEmailAction ea)))
                         return None
             }
 
@@ -428,6 +451,12 @@ module TrayApp =
             // Seed the indicator (glyph + tray tooltip) until the first tick
             // resolves it to Connected / Not connected.
             setConnection Connecting
+
+            // Bring back emails left unchecked last session (no chime: they
+            // aren't new).
+            for ea in emailStore.Pending do
+                postToUi (fun () ->
+                    Notifications.fireEmailAlert cfg (getWindow ()) false ea (handleEmailAction ea))
 
             // Kick off the polling loop.
             Async.Start(pollLoop (), cts.Token)

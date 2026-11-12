@@ -111,6 +111,18 @@ type ReminderWindow() =
     // re-reminds at.
     let snoozeLeadMinutes = 2.0
 
+    // Row geometry. Rows are a fixed height so each section can cap itself
+    // at exactly `maxVisibleRows` rows before it starts scrolling.
+    let windowWidth = 480.0
+    let rowHeight = 56.0
+    let rowGap = 6.0
+    let listBottomPad = 8.0
+    let maxVisibleRows = 5
+    // Title bar + footer, and each section's header, for the fit-to-screen
+    // calculation when both sections are full.
+    let chromeHeight = 40.0 + 48.0
+    let sectionHeaderHeight = 32.0
+
     let palette = ReminderTheme.current ()
     let brush (c: Color) = SolidColorBrush c :> Brush
 
@@ -133,8 +145,15 @@ type ReminderWindow() =
         XamlReader.Load s :?> FrameworkElement
 
     let shell = loadShell ()
-    let panel = shell.FindName "RowsPanel" :?> StackPanel
-    let scroll = shell.FindName "RowsScroll" :?> ScrollViewer
+    let find name = shell.FindName name
+    let meetingsHeader = find "MeetingsHeader" :?> FrameworkElement
+    let meetingsCount = find "MeetingsCount" :?> TextBlock
+    let meetingsScroll = find "MeetingsScroll" :?> ScrollViewer
+    let meetingsPanel = find "MeetingsPanel" :?> StackPanel
+    let emailsHeader = find "EmailsHeader" :?> FrameworkElement
+    let emailsCount = find "EmailsCount" :?> TextBlock
+    let emailsScroll = find "EmailsScroll" :?> ScrollViewer
+    let emailsPanel = find "EmailsPanel" :?> StackPanel
     let dismissAllButton = shell.FindName "DismissAllButton" :?> Button
     let snoozeAllButton = shell.FindName "SnoozeAllButton" :?> Button
 
@@ -173,14 +192,41 @@ type ReminderWindow() =
         | ReminderList.MeetingKey id -> meetingCallbacks <- Map.remove id meetingCallbacks
         | ReminderList.EmailKey id -> emailCallbacks <- Map.remove id emailCallbacks
 
+    /// Max height of one section's scroller: `maxVisibleRows` rows, shrunk
+    /// evenly if the visible sections wouldn't otherwise fit on screen.
+    let sectionCap (visibleSections: int) =
+        let fullCap =
+            float maxVisibleRows * (rowHeight + rowGap) + listBottomPad
+        let available =
+            SystemParameters.WorkArea.Height * 0.9
+            - chromeHeight
+            - sectionHeaderHeight * float visibleSections
+        let share = available / float (max 1 visibleSections)
+        max (rowHeight + rowGap + listBottomPad) (min fullCap share)
+
     let rec render () =
-        panel.Children.Clear()
-        for r in reminders do
-            panel.Children.Add(buildRow r) |> ignore
+        let meetings = ReminderList.meetingsBySoonest reminders
+        let emails = ReminderList.emailsByNewest reminders
+        let fill (panel: StackPanel) (rows: ReminderList.ReminderList) =
+            panel.Children.Clear()
+            for r in rows do
+                panel.Children.Add(buildRow r) |> ignore
+        let show (header: FrameworkElement) (scroll: ScrollViewer) (count: TextBlock) rows =
+            let v = if List.isEmpty rows then Visibility.Collapsed else Visibility.Visible
+            header.Visibility <- v
+            scroll.Visibility <- v
+            count.Text <- string (List.length rows)
+        fill meetingsPanel meetings
+        fill emailsPanel emails
+        show meetingsHeader meetingsScroll meetingsCount meetings
+        show emailsHeader emailsScroll emailsCount emails
+        let cap =
+            sectionCap ([ meetings; emails ] |> List.filter (List.isEmpty >> not) |> List.length)
+        meetingsScroll.MaxHeight <- cap
+        emailsScroll.MaxHeight <- cap
         // Snooze only applies to meetings; hide it when only emails remain.
         snoozeAllButton.Visibility <-
-            if List.isEmpty (ReminderList.meetings reminders) then Visibility.Collapsed
-            else Visibility.Visible
+            if List.isEmpty meetings then Visibility.Collapsed else Visibility.Visible
 
     and removeReminder (key: ReminderList.ReminderKey) =
         reminders <- ReminderList.remove key reminders
@@ -195,8 +241,9 @@ type ReminderWindow() =
         let border = Border()
         border.Background <- brush palette.Surface
         border.CornerRadius <- CornerRadius 6.0
-        border.Margin <- Thickness(8.0, 6.0, 8.0, 0.0)
-        border.Padding <- Thickness 10.0
+        border.Margin <- Thickness(8.0, rowGap, 8.0, 0.0)
+        border.Padding <- Thickness(10.0, 0.0, 6.0, 0.0)
+        border.Height <- rowHeight
 
         let grid = Grid()
         grid.ColumnDefinitions.Add(ColumnDefinition(Width = GridLength.Auto))
@@ -320,17 +367,18 @@ type ReminderWindow() =
         window.ResizeMode <- ResizeMode.CanMinimize
         window.ShowInTaskbar <- true
         window.Topmost <- keepOnTop
-        window.Width <- 380.0
+        window.Width <- windowWidth
         window.SizeToContent <- SizeToContent.Height
-        window.MaxHeight <- SystemParameters.WorkArea.Height * 0.6
+        // Sections cap themselves (see sectionCap); this is just a backstop.
+        window.MaxHeight <- SystemParameters.WorkArea.Height * 0.9
         window.ShowActivated <- true
         window.Background <- brush palette.WindowBg
         window.Resources.["WindowBg"] <- brush palette.WindowBg
         window.Resources.["HeaderBg"] <- brush palette.HeaderBg
         window.Resources.["TextBrush"] <- brush palette.Text
+        window.Resources.["SubtleBrush"] <- brush palette.Subtle
         window.Resources.["ButtonBg"] <- brush palette.ButtonBg
         window.Resources.["ButtonHoverBg"] <- brush palette.ButtonHover
-        scroll.MaxHeight <- SystemParameters.WorkArea.Height * 0.6
         dismissAllButton.Click.Add(fun _ -> dismissAll ())
         snoozeAllButton.Click.Add(fun _ -> snoozeAll ())
         // Repurpose the title-bar X: snooze-all instead of closing, unless the
@@ -340,8 +388,8 @@ type ReminderWindow() =
             if not shuttingDown then
                 e.Cancel <- true
                 snoozeAll ())
-        // Start with no rows, so no snooze-all until a meeting arrives.
-        snoozeAllButton.Visibility <- Visibility.Collapsed
+        // Start in the empty state (sections and snooze-all hidden).
+        render ()
         countdownTimer.Tick.Add(fun _ ->
             if window.IsVisible
                && window.WindowState <> WindowState.Minimized

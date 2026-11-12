@@ -100,6 +100,25 @@ let ``remove drops an email row by key`` () =
     ReminderList.isEmpty list |> should be True
 
 [<Fact>]
+let ``emailsByNewest puts the latest email first`` () =
+    let older = { emailAlert "e1" "Older" with Email = { (emailAlert "e1" "Older").Email with Received = now - TimeSpan.FromMinutes 10.0 } }
+    let list =
+        ReminderList.empty
+        |> ReminderList.addEmail older
+        |> ReminderList.addEmail (emailAlert "e2" "Newer")
+    ReminderList.emailsByNewest list |> List.map (fun r -> r.Subject) |> should equal [ "Newer"; "Older" ]
+
+[<Fact>]
+let ``meetingsBySoonest puts the next meeting first`` () =
+    let later = pending "m1" "Later" None
+    let later = { later with Meeting = { later.Meeting with Start = now + TimeSpan.FromHours 1.0 } }
+    let list =
+        ReminderList.empty
+        |> ReminderList.add later
+        |> ReminderList.add (pending "m2" "Sooner" None)
+    ReminderList.meetingsBySoonest list |> List.map (fun r -> r.Subject) |> should equal [ "Sooner"; "Later" ]
+
+[<Fact>]
 let ``timeAgoText renders recent and older emails`` () =
     ReminderList.timeAgoText now (now - TimeSpan.FromSeconds 20.0) |> should equal "just now"
     ReminderList.timeAgoText now (now - TimeSpan.FromMinutes 1.0) |> should equal "1 min ago"

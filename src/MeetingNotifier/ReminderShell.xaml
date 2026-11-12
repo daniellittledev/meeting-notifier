@@ -29,13 +29,43 @@
     </Style>
   </Grid.Resources>
   <Grid.RowDefinitions>
-    <RowDefinition Height="*" />
+    <RowDefinition Height="Auto" />
+    <RowDefinition Height="Auto" />
+    <RowDefinition Height="Auto" />
+    <RowDefinition Height="Auto" />
     <RowDefinition Height="Auto" />
   </Grid.RowDefinitions>
-  <ScrollViewer Grid.Row="0" x:Name="RowsScroll" VerticalScrollBarVisibility="Auto">
-    <StackPanel x:Name="RowsPanel" Margin="0,2,0,8" />
+  <!-- Each section caps itself at a few rows (MaxHeight set in code) and
+       scrolls on its own; a section hides when it has no rows. -->
+  <StackPanel Grid.Row="0" x:Name="MeetingsHeader" Orientation="Horizontal"
+              Margin="16,10,16,0">
+    <TextBlock Text="MEETINGS" FontSize="12" FontWeight="SemiBold"
+               Foreground="{DynamicResource SubtleBrush}"
+               VerticalAlignment="Center" />
+    <Border Background="{DynamicResource ButtonBg}" CornerRadius="9"
+            Padding="7,0" Margin="8,0,0,0" VerticalAlignment="Center">
+      <TextBlock x:Name="MeetingsCount" FontSize="11" FontWeight="SemiBold"
+                 Foreground="{DynamicResource TextBrush}" />
+    </Border>
+  </StackPanel>
+  <ScrollViewer Grid.Row="1" x:Name="MeetingsScroll" VerticalScrollBarVisibility="Auto">
+    <StackPanel x:Name="MeetingsPanel" Margin="0,0,0,8" />
   </ScrollViewer>
-  <Border Grid.Row="1" Background="{DynamicResource HeaderBg}" Padding="10,8">
+  <StackPanel Grid.Row="2" x:Name="EmailsHeader" Orientation="Horizontal"
+              Margin="16,10,16,0">
+    <TextBlock Text="EMAILS" FontSize="12" FontWeight="SemiBold"
+               Foreground="{DynamicResource SubtleBrush}"
+               VerticalAlignment="Center" />
+    <Border Background="{DynamicResource ButtonBg}" CornerRadius="9"
+            Padding="7,0" Margin="8,0,0,0" VerticalAlignment="Center">
+      <TextBlock x:Name="EmailsCount" FontSize="11" FontWeight="SemiBold"
+                 Foreground="{DynamicResource TextBrush}" />
+    </Border>
+  </StackPanel>
+  <ScrollViewer Grid.Row="3" x:Name="EmailsScroll" VerticalScrollBarVisibility="Auto">
+    <StackPanel x:Name="EmailsPanel" Margin="0,0,0,8" />
+  </ScrollViewer>
+  <Border Grid.Row="4" Background="{DynamicResource HeaderBg}" Padding="10,8">
     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
       <Button x:Name="SnoozeAllButton" Content="Snooze all"
               Margin="0,0,8,0" Style="{StaticResource FlatButton}" />

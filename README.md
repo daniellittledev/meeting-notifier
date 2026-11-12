@@ -115,9 +115,9 @@ and other things where someone is waiting on you:
 - `subjectContains` — partial, case-insensitive match against the subject.
 - When a rule sets both, both must match. A rule with neither is ignored.
 - `name` — optional label shown on the row; defaults to the criteria.
-- `emailLookbackMinutes` — on launch, also pick up matching mail received
-  this many minutes earlier, so a restart doesn't lose reminders (default:
-  60).
+- `emailLookbackMinutes` — on the very first launch with rules, also pick
+  up matching mail received this many minutes earlier (default: 60). After
+  that the app resumes from where it last polled.
 
 Matching mail is checked every poll across all your mail folders (so mail
 your inbox rules move into sub-folders still counts), skipping Sent, Drafts,
@@ -130,6 +130,17 @@ Deleted, Junk and Outbox. Each email alerts once:
 - **Snooze all** / the title-bar X only snooze meetings; email rows stay,
   so the window minimises to the taskbar until you tick them off.
   **Dismiss all** clears everything, emails included.
+
+Email reminders survive restarts. `%APPDATA%\MeetingNotifier\email-reminders.json`
+holds the ones still waiting (shown again, silently, on launch), the ones
+you've ticked off (never shown again; forgotten after 30 days) and the
+polling cursor, so mail that arrives while the app is closed is picked up
+next launch (catching up at most 3 days).
+
+The Reminders window groups rows into **Meetings** (soonest first) and
+**Emails** (newest first). Each section grows to 5 rows and then scrolls on
+its own; an empty section is hidden, and **Snooze all** only appears when
+there are meetings.
 
 Email reminders need the `Mail.Read` permission on your app registration.
 It's only requested when at least one rule is configured, so the first launch
