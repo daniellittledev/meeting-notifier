@@ -131,3 +131,23 @@ let ``buildMessagesUrl filters by received time and escapes the filter`` () =
     url |> should startWith "https://graph.microsoft.com/v1.0/me/messages?$filter="
     url |> should haveSubstring "receivedDateTime%20ge%202026-04-15T10%3A00%3A00Z"
     url |> should haveSubstring "isDraft%20eq%20false"
+    url |> should haveSubstring "$orderby=receivedDateTime asc"
+
+[<Fact>]
+let ``parseFoldersPage maps folders with child counts`` () =
+    let body =
+        """{ "value": [
+              { "id": "f1", "displayName": "Deleted Items", "parentFolderId": "root", "childFolderCount": 2 },
+              { "id": "f2", "displayName": null, "parentFolderId": "root", "childFolderCount": 0 } ],
+            "@odata.nextLink": "https://graph.microsoft.com/next" }"""
+    let folders, next = GraphParsing.parseFoldersPage body
+    next |> should equal (Some "https://graph.microsoft.com/next")
+    folders
+    |> should equal
+        [ { FolderId = "f1"; DisplayName = "Deleted Items"; ParentFolderId = "root" }, 2
+          { FolderId = "f2"; DisplayName = ""; ParentFolderId = "root" }, 0 ]
+
+[<Fact>]
+let ``buildChildFoldersUrl escapes the folder id`` () =
+    GraphParsing.buildChildFoldersUrl "AAMk=/x"
+    |> should haveSubstring "/mailFolders/AAMk%3D%2Fx/childFolders"

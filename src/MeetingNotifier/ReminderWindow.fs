@@ -129,7 +129,9 @@ type ReminderWindow() =
     let window = Window()
     let mutable reminders : ReminderList.ReminderList = ReminderList.empty
     let mutable meetingCallbacks : Map<MeetingId, AlertAction -> unit> = Map.empty
-    let mutable emailCallbacks : Map<EmailId, EmailAction -> unit> = Map.empty
+    // One handler for all email rows (set by the tray app), so a batch
+    // action like "Dismiss all" reaches it as a single Done.
+    let mutable onEmailAction : EmailAction -> unit = ignore
     let mutable keepOnTop = true
     let mutable hwnd = IntPtr.Zero
     // Set only during app shutdown so the Closing handler lets the window
@@ -184,13 +186,17 @@ type ReminderWindow() =
     let meetingCallback id =
         Map.tryFind id meetingCallbacks |> Option.defaultValue ignore
 
-    let emailCallback id =
-        Map.tryFind id emailCallbacks |> Option.defaultValue ignore
-
     let forgetCallback (key: ReminderList.ReminderKey) =
         match key with
         | ReminderList.MeetingKey id -> meetingCallbacks <- Map.remove id meetingCallbacks
-        | ReminderList.EmailKey id -> emailCallbacks <- Map.remove id emailCallbacks
+        | ReminderList.EmailKey _ -> ()
+
+    let emailIds (rows: ReminderList.ReminderList) =
+        rows
+        |> List.choose (fun r ->
+            match r.Key with
+            | ReminderList.EmailKey id -> Some id
+            | ReminderList.MeetingKey _ -> None)
 
     /// Max height of one section's scroller: `maxVisibleRows` rows, shrunk
     /// evenly if the visible sections wouldn't otherwise fit on screen.
@@ -315,13 +321,12 @@ type ReminderWindow() =
                 onAction Dismiss
                 removeReminder r.Key)
         | ReminderList.EmailKey id, ReminderList.EmailReminder(_, webLink) ->
-            let onAction = emailCallback id
             // Opening keeps the row: it's a to-do until it's checked off.
             webLink
             |> Option.iter (fun url ->
-                addButton "\uE8A7" "Open in Outlook" (fun () -> onAction (OpenEmail url))) // open-in-new-window glyph
+                addButton "\uE8A7" "Open in Outlook" (fun () -> onEmailAction (OpenEmail url))) // open-in-new-window glyph
             addButton "\uE73E" "Done" (fun () -> // checkmark glyph
-                onAction Done
+                onEmailAction (Done [ id ])
                 removeReminder r.Key)
         | _ -> ()
         Grid.SetColumn(actions, 2)
@@ -335,10 +340,11 @@ type ReminderWindow() =
     /// Dismiss every row: meetings are dismissed and emails checked off.
     let dismissAll () =
         meetingCallbacks |> Map.iter (fun _ cb -> cb Dismiss)
-        emailCallbacks |> Map.iter (fun _ cb -> cb Done)
+        match emailIds reminders with
+        | [] -> ()
+        | ids -> onEmailAction (Done ids)
         reminders <- ReminderList.empty
         meetingCallbacks <- Map.empty
-        emailCallbacks <- Map.empty
         window.Hide()
 
     /// Snooze every meeting row. Email rows can't be snoozed — they stay
@@ -424,9 +430,11 @@ type ReminderWindow() =
         render ()
         showAndFlash true
 
-    member _.AddEmail(ea: EmailAlert, onAction: EmailAction -> unit) : unit =
+    member _.SetEmailActionHandler(handler: EmailAction -> unit) : unit =
+        onEmailAction <- handler
+
+    member _.AddEmail(ea: EmailAlert) : unit =
         reminders <- ReminderList.addEmail ea reminders
-        emailCallbacks <- Map.add ea.Email.Id onAction emailCallbacks
         render ()
         showAndFlash false
 

@@ -31,7 +31,7 @@ let ``markDone moves a pending email to completed`` () =
     let s =
         EmailStore.empty
         |> EmailStore.addPending [ alert "a" now ]
-        |> EmailStore.markDone (EmailId "a")
+        |> EmailStore.markDone [ EmailId "a" ]
     s.Pending |> should be Empty
     s.Completed |> Map.containsKey (EmailId "a") |> should be True
     EmailStore.knows (EmailId "a") s |> should be True
@@ -41,21 +41,21 @@ let ``a checked-off email is never re-added`` () =
     let s =
         EmailStore.empty
         |> EmailStore.addPending [ alert "a" now ]
-        |> EmailStore.markDone (EmailId "a")
+        |> EmailStore.markDone [ EmailId "a" ]
         |> EmailStore.addPending [ alert "a" now ]
     s.Pending |> should be Empty
 
 [<Fact>]
 let ``markDone on an unknown id is a no-op`` () =
-    EmailStore.markDone (EmailId "zz") EmailStore.empty |> should equal EmailStore.empty
+    EmailStore.markDone [ EmailId "zz" ] EmailStore.empty |> should equal EmailStore.empty
 
 [<Fact>]
 let ``prune forgets completed emails past the retention window`` () =
     let s =
         EmailStore.empty
         |> EmailStore.addPending [ alert "old" (now - TimeSpan.FromDays 40.0); alert "new" now ]
-        |> EmailStore.markDone (EmailId "old")
-        |> EmailStore.markDone (EmailId "new")
+        |> EmailStore.markDone [ EmailId "old" ]
+        |> EmailStore.markDone [ EmailId "new" ]
         |> EmailStore.prune now
     s.Completed |> Map.keys |> List.ofSeq |> should equal [ EmailId "new" ]
 
@@ -80,7 +80,7 @@ let ``json round-trips the whole store`` () =
     let s =
         EmailStore.empty
         |> EmailStore.addPending [ alert "a" now; alert "b" (now - TimeSpan.FromMinutes 3.0) ]
-        |> EmailStore.markDone (EmailId "b")
+        |> EmailStore.markDone [ EmailId "b" ]
         |> EmailStore.withSince now
     EmailStore.ofJson (EmailStore.toJson s) |> should equal s
 
@@ -94,3 +94,41 @@ let ``json round-trips a missing web link`` () =
 let ``unreadable json yields the empty store`` () =
     EmailStore.ofJson "{ not json" |> should equal EmailStore.empty
     EmailStore.ofJson "null" |> should equal EmailStore.empty
+
+[<Fact>]
+let ``markDone checks off several emails in one go`` () =
+    let s =
+        EmailStore.empty
+        |> EmailStore.addPending [ alert "a" now; alert "b" now; alert "c" now ]
+        |> EmailStore.markDone [ EmailId "a"; EmailId "c" ]
+    s.Pending |> List.map (fun a -> a.Email.Id) |> should equal [ EmailId "b" ]
+    s.Completed |> Map.count |> should equal 2
+
+[<Fact>]
+let ``needsSave is false when nothing changed`` () =
+    let s = EmailStore.withSince now EmailStore.empty
+    EmailStore.needsSave s s |> should be False
+
+[<Fact>]
+let ``needsSave ignores small cursor moves`` () =
+    let saved = EmailStore.withSince now EmailStore.empty
+    let current = EmailStore.withSince (now + TimeSpan.FromMinutes 1.0) saved
+    EmailStore.needsSave saved current |> should be False
+
+[<Fact>]
+let ``needsSave persists a cursor that has drifted`` () =
+    let saved = EmailStore.withSince now EmailStore.empty
+    let current = EmailStore.withSince (now + EmailStore.cursorSaveInterval) saved
+    EmailStore.needsSave saved current |> should be True
+
+[<Fact>]
+let ``needsSave persists the first cursor`` () =
+    EmailStore.needsSave EmailStore.empty (EmailStore.withSince now EmailStore.empty)
+    |> should be True
+
+[<Fact>]
+let ``needsSave persists pending and completed changes`` () =
+    let saved = EmailStore.withSince now EmailStore.empty
+    let added = EmailStore.addPending [ alert "a" now ] saved
+    EmailStore.needsSave saved added |> should be True
+    EmailStore.needsSave added (EmailStore.markDone [ EmailId "a" ] added) |> should be True

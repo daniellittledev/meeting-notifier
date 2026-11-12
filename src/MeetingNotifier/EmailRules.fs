@@ -45,6 +45,42 @@ module EmailRules =
     let firstMatch (rules: Config.EmailRule list) (email: Email) : Config.EmailRule option =
         rules |> List.tryFind (fun r -> matches r email)
 
+    /// Folder ids to skip: the given root ids (the built-in well-known
+    /// folders), any folder whose display name matches a configured name
+    /// (case-insensitive), and every descendant of those.
+    let excludedFolderIds
+        (folders: MailFolder list)
+        (rootIds: Set<string>)
+        (excludedNames: string list)
+        : Set<string>
+        =
+        let names = excludedNames |> List.map (fun n -> n.Trim()) |> List.filter hasText
+        let nameMatches (f: MailFolder) =
+            names
+            |> List.exists (fun n ->
+                String.Equals(f.DisplayName.Trim(), n, StringComparison.OrdinalIgnoreCase))
+        let childrenOf =
+            folders
+            |> List.groupBy (fun f -> f.ParentFolderId)
+            |> List.map (fun (parent, kids) -> parent, kids |> List.map (fun k -> k.FolderId))
+            |> Map.ofList
+        let roots =
+            folders
+            |> List.filter nameMatches
+            |> List.map (fun f -> f.FolderId)
+            |> Set.ofList
+            |> Set.union rootIds
+        let rec expand (acc: Set<string>) (frontier: string list) =
+            match frontier with
+            | [] -> acc
+            | id :: rest ->
+                let kids =
+                    Map.tryFind id childrenOf
+                    |> Option.defaultValue []
+                    |> List.filter (fun k -> not (Set.contains k acc))
+                expand (Set.union acc (Set.ofList kids)) (kids @ rest)
+        expand roots (Set.toList roots)
+
     /// Polling cursor. `Since` is the receivedDateTime lower bound for the
     /// next fetch; `Seen` holds every email already evaluated (with its
     /// received time, so it can be pruned once it falls behind `Since`).
@@ -57,21 +93,20 @@ module EmailRules =
     /// picked up. Re-fetched mail is de-duplicated via `Seen`.
     let overlap = TimeSpan.FromMinutes 15.0
 
-    let initial (now: DateTimeOffset) (lookbackMinutes: int) : EmailState =
-        { Since = now - TimeSpan.FromMinutes(float lookbackMinutes)
-          Seen = Map.empty }
-
-    /// Given the emails fetched since `state.Since`, return the alerts for
-    /// newly-seen matching emails (oldest first) and the advanced state.
+    /// Given one poll's batch (fetched from `state.Since`), return the alerts
+    /// for newly-seen matching emails (oldest first) and the advanced state.
+    /// A truncated batch only advances the cursor to the newest message it
+    /// actually fetched, so the rest is picked up on the next poll instead
+    /// of being skipped.
     let computeNew
         (now: DateTimeOffset)
         (rules: Config.EmailRule list)
-        (emails: Email list)
+        (batch: MailBatch)
         (state: EmailState)
         : EmailAlert list * EmailState
         =
         let fresh =
-            emails
+            batch.Emails
             |> List.distinctBy (fun e -> e.Id)
             |> List.filter (fun e -> not (Map.containsKey e.Id state.Seen))
         let alerts =
@@ -80,7 +115,11 @@ module EmailRules =
             |> List.choose (fun e ->
                 firstMatch rules e
                 |> Option.map (fun r -> { Email = e; RuleName = label r }))
-        let since' = max state.Since (now - overlap)
+        let target =
+            if batch.Truncated then
+                batch.NewestReceived |> Option.defaultValue state.Since
+            else now - overlap
+        let since' = max state.Since target
         let seen' =
             fresh
             |> List.fold (fun acc e -> Map.add e.Id e.Received acc) state.Seen

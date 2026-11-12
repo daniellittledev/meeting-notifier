@@ -187,7 +187,8 @@ module GraphParsing =
 
     /// First /me/messages URL: everything received since `since` (all
     /// folders, so mail routed into sub-folders by inbox rules still counts),
-    /// newest first.
+    /// OLDEST first, so if paging is cut short it's the newest mail that's
+    /// left for the next poll rather than older mail being skipped.
     let buildMessagesUrl (since: DateTimeOffset) =
         let ts =
             since.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture)
@@ -195,10 +196,11 @@ module GraphParsing =
         "https://graph.microsoft.com/v1.0/me/messages"
         + $"?$filter={filter}"
         + "&$select=id,subject,from,receivedDateTime,webLink,parentFolderId"
-        + "&$orderby=receivedDateTime desc"
+        + "&$orderby=receivedDateTime asc"
         + "&$top=50"
 
-    /// Well-known folders whose contents never count as incoming reminders.
+    /// Built-in well-known folders whose contents (and sub-folders) never
+    /// count as incoming reminders.
     let excludedWellKnownFolders =
         [ "sentitems"; "drafts"; "deleteditems"; "junkemail"; "outbox" ]
 
@@ -211,3 +213,48 @@ module GraphParsing =
     let parseFolderId (body: string) : string option =
         let parsed = JsonSerializer.Deserialize<GraphFolder>(body, jsonOpts)
         if isNull (box parsed) then None else opt parsed.id
+
+    [<CLIMutable>]
+    type GraphMailFolder =
+        { id: string
+          displayName: string
+          parentFolderId: string
+          childFolderCount: int }
+
+    [<CLIMutable>]
+    type GraphMailFoldersResponse =
+        { value: GraphMailFolder[]
+          [<JsonPropertyName("@odata.nextLink")>] nextLink: string option }
+
+    let private folderSelect = "$select=id,displayName,parentFolderId,childFolderCount&$top=100"
+
+    /// Top-level mail folders.
+    let buildFoldersUrl () =
+        $"https://graph.microsoft.com/v1.0/me/mailFolders?{folderSelect}"
+
+    let buildChildFoldersUrl (folderId: string) =
+        $"https://graph.microsoft.com/v1.0/me/mailFolders/{Uri.EscapeDataString folderId}/childFolders?{folderSelect}"
+
+    /// One page of folders, each with its child-folder count (so the caller
+    /// knows which to descend into), plus the nextLink.
+    let parseFoldersPage (body: string) : (MailFolder * int) list * string option =
+        let parsed = JsonSerializer.Deserialize<GraphMailFoldersResponse>(body, jsonOpts)
+        if isNull (box parsed) then [], None
+        else
+            let orEmpty (s: string) = if isNull s then "" else s
+            let folders =
+                if isNull parsed.value then []
+                else
+                    parsed.value
+                    |> Array.filter (fun f -> not (isNull (box f)) && not (String.IsNullOrEmpty f.id))
+                    |> Array.map (fun f ->
+                        { FolderId = f.id
+                          DisplayName = orEmpty f.displayName
+                          ParentFolderId = orEmpty f.parentFolderId },
+                        f.childFolderCount)
+                    |> Array.toList
+            let next =
+                match parsed.nextLink with
+                | Some s when not (String.IsNullOrWhiteSpace s) -> Some s
+                | _ -> None
+            folders, next

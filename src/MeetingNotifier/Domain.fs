@@ -80,8 +80,24 @@ module Domain =
           /// Human-readable label of the rule that matched.
           RuleName: string }
 
-    /// The user action taken on an email reminder row. Opening keeps the row
-    /// (it's a to-do until checked off); Done removes it.
+    /// The user action taken on email reminder rows. Opening keeps the row
+    /// (it's a to-do until checked off); Done checks off one or more rows in
+    /// one go (a single Done for "Dismiss all", so it's one store write).
     type EmailAction =
         | OpenEmail of url: string
-        | Done
+        | Done of EmailId list
+
+    /// A mailbox folder, used to work out which folders (and their
+    /// sub-folders) to skip.
+    type MailFolder =
+        { FolderId: string
+          DisplayName: string
+          ParentFolderId: string }
+
+    /// One poll's worth of mail, oldest first. `Truncated` means the fetch
+    /// hit its page cap, so `NewestReceived` (the newest message fetched,
+    /// before folder filtering) is as far as the cursor may advance.
+    type MailBatch =
+        { Emails: Email list
+          Truncated: bool
+          NewestReceived: DateTimeOffset option }

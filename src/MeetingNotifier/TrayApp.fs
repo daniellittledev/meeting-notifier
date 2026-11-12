@@ -63,6 +63,8 @@ module TrayApp =
             if Option.isSome mailSource then
                 EmailStore.load () |> EmailStore.prune DateTimeOffset.Now
             else EmailStore.empty
+        // What's on disk, so saves only happen when something meaningful changed.
+        let mutable savedEmailStore = emailStore
         let mutable emailState : EmailRules.EmailState =
             { Since = EmailStore.startSince DateTimeOffset.Now cfg.EmailLookbackMinutes emailStore
               Seen = Map.empty }
@@ -106,6 +108,31 @@ module TrayApp =
             statusItem.ToolTipText <- tip
             notifyIcon.Text <- sprintf "Meeting Notifier — %s" text
 
+        /// Apply a change to the email store (pruning old checked-off ids) and
+        /// write it to disk when it differs meaningfully from what's saved.
+        /// Callers must hold `stateLock`.
+        let commitEmailStore (now: DateTimeOffset) (store: EmailStore.EmailStore) =
+            let store = EmailStore.prune now store
+            emailStore <- store
+            if EmailStore.needsSave savedEmailStore store then
+                try
+                    EmailStore.save store
+                    savedEmailStore <- store
+                with ex -> eprintfn "saving email reminders failed: %s" ex.Message
+
+        let handleEmailAction (action: EmailAction) =
+            match action with
+            | OpenEmail url ->
+                try
+                    Process.Start(ProcessStartInfo(url, UseShellExecute = true))
+                    |> ignore
+                with _ -> ()
+            // Remember them on disk so they never come back, even after a
+            // restart. A whole "Dismiss all" arrives as one Done: one write.
+            | Done ids ->
+                lock stateLock (fun () ->
+                    commitEmailStore DateTimeOffset.Now (EmailStore.markDone ids emailStore))
+
         // Lazily create the single reminders window. Must run on the UI
         // thread, so only call it from inside postToUi.
         let getWindow () =
@@ -114,6 +141,7 @@ module TrayApp =
             | None ->
                 let w = ReminderWindow()
                 w.SetKeepOnTop cfg.KeepOnTop
+                w.SetEmailActionHandler handleEmailAction
                 reminderWindow <- Some w
                 w
 
@@ -252,25 +280,6 @@ module TrayApp =
             | Dismiss ->
                 updateState (AlertEngine.markDismissed pa.Meeting.Id)
 
-        /// Apply a change to the email store and write it to disk. Callers
-        /// must hold `stateLock`.
-        let commitEmailStore (store: EmailStore.EmailStore) =
-            emailStore <- store
-            try EmailStore.save store
-            with ex -> eprintfn "saving email reminders failed: %s" ex.Message
-
-        let handleEmailAction (ea: EmailAlert) (action: EmailAction) =
-            match action with
-            | OpenEmail url ->
-                try
-                    Process.Start(ProcessStartInfo(url, UseShellExecute = true))
-                    |> ignore
-                with _ -> ()
-            // Remember it on disk so it never comes back, even after a restart.
-            | Done ->
-                lock stateLock (fun () ->
-                    commitEmailStore (EmailStore.markDone ea.Email.Id emailStore))
-
         /// Fetch new mail and surface any that match a rule. Returns the
         /// error message on failure so the status indicator can show it.
         let pollEmails (now: DateTimeOffset) : Async<string option> =
@@ -284,28 +293,30 @@ module TrayApp =
                     | Error msg ->
                         eprintfn "messages failed: %s" msg
                         return Some msg
-                    | Ok emails ->
+                    | Ok batch ->
                         let alerts =
                             lock stateLock (fun () ->
                                 // Skip anything already pending or checked
                                 // off in a previous session.
                                 let unknown =
-                                    emails
-                                    |> List.filter (fun e -> not (EmailStore.knows e.Id emailStore))
+                                    { batch with
+                                        Emails =
+                                            batch.Emails
+                                            |> List.filter (fun e -> not (EmailStore.knows e.Id emailStore)) }
                                 let a, s' =
                                     EmailRules.computeNew now emailRules unknown emailState
                                 emailState <- s'
                                 emailStore
                                 |> EmailStore.addPending a
                                 |> EmailStore.withSince s'.Since
-                                |> commitEmailStore
+                                |> commitEmailStore now
                                 a)
                         // One ding per batch, not one per email.
                         alerts
                         |> List.iteri (fun i ea ->
                             postToUi (fun () ->
                                 Notifications.fireEmailAlert
-                                    cfg (getWindow ()) (i = 0) ea (handleEmailAction ea)))
+                                    cfg (getWindow ()) (i = 0) ea))
                         return None
             }
 
@@ -313,8 +324,11 @@ module TrayApp =
             async {
                 let now = DateTimeOffset.Now
                 let endT = now + TimeSpan.FromHours 24.0
+                // Calendar and mail are independent: fetch them concurrently
+                // so a slow one doesn't delay the other's alerts.
+                let! mailPoll = Async.StartChild(pollEmails now)
                 let! result = source.GetMeetingsInWindow(now, endT)
-                let! emailError = pollEmails now
+                let! emailError = mailPoll
                 match result, emailError with
                 | Error msg, _ ->
                     eprintfn "calendarView failed: %s" msg
@@ -415,6 +429,8 @@ module TrayApp =
                     try
                         do! tokenProvider.SignOut()
                         let! _ = tokenProvider.GetAccessToken()
+                        // Let the mail source prompt for Mail.Read again.
+                        mailSource |> Option.iter (fun m -> m.ResetSignIn())
                         return ()
                     with ex ->
                         eprintfn "re-auth failed: %s" ex.Message
@@ -456,7 +472,7 @@ module TrayApp =
             // aren't new).
             for ea in emailStore.Pending do
                 postToUi (fun () ->
-                    Notifications.fireEmailAlert cfg (getWindow ()) false ea (handleEmailAction ea))
+                    Notifications.fireEmailAlert cfg (getWindow ()) false ea)
 
             // Kick off the polling loop.
             Async.Start(pollLoop (), cts.Token)

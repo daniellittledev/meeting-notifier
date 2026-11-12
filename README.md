@@ -72,7 +72,8 @@ this file directly:
   "pollIntervalSeconds": 60,
   "soundOnFinalOnly": false,
   "emailRules": [],
-  "emailLookbackMinutes": 60
+  "emailLookbackMinutes": 60,
+  "emailExcludedFolders": []
 }
 ```
 
@@ -119,9 +120,16 @@ and other things where someone is waiting on you:
   up matching mail received this many minutes earlier (default: 60). After
   that the app resumes from where it last polled.
 
+- `emailExcludedFolders` — extra folders to ignore, by display name
+  (case-insensitive), e.g. `["Archive", "Newsletters"]`. Their sub-folders
+  are ignored too.
+
 Matching mail is checked every poll across all your mail folders (so mail
-your inbox rules move into sub-folders still counts), skipping Sent, Drafts,
-Deleted, Junk and Outbox. Each email alerts once:
+your inbox rules move into sub-folders still counts). **Sent Items, Deleted
+Items, Junk Email, Drafts and Outbox — and everything inside them — are
+always skipped**, plus anything in `emailExcludedFolders`. The folder list is
+re-read hourly; if it can't be read, that poll is skipped rather than risk
+alerting on your own sent mail. Each email alerts once:
 
 - A soft single-note ding plays (if **Play sound** is on) — not the big
   meeting chime — and the window appears and flashes without stealing focus.
@@ -143,9 +151,12 @@ its own; an empty section is hidden, and **Snooze all** only appears when
 there are meetings.
 
 Email reminders need the `Mail.Read` permission on your app registration.
-It's only requested when at least one rule is configured, so the first launch
-after adding rules will ask you to sign in / consent again. If mail can't be
-read, the tray indicator shows **Not connected** with an `Email:` reason.
+It's requested separately from the calendar's `Calendars.Read`, and only
+when at least one rule is configured, so a missing mail consent never stops
+meeting alerts. The first launch after adding rules asks once for consent;
+if that's declined (or your tenant needs an admin to grant it), the tray
+indicator shows **Not connected** with an `Email:` reason and the app won't
+keep prompting. Use **Re-authenticate...** to try again.
 
 Configuration is read once at launch, so **edits only take effect after you
 restart Meeting Notifier**. The Settings menu item reminds you of this when

@@ -139,7 +139,6 @@ module Notifications =
         (window: ReminderWindow)
         (chime: bool)
         (ea: EmailAlert)
-        (onAction: EmailAction -> unit)
         =
         if chime && cfg.SoundEnabled then Audio.playSoft cfg
-        window.AddEmail(ea, onAction)
+        window.AddEmail ea

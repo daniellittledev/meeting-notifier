@@ -12,13 +12,11 @@ open Microsoft.Identity.Client.Extensions.Msal
 /// types never leak upward.
 module Auth =
 
-    /// Delegated scopes to request. Mail.Read is only asked for when email
-    /// rules are configured, so calendar-only users don't need to grant it.
-    let scopesFor (cfg: Config.AppConfig) : string[] =
-        let wantsMail =
-            not (List.isEmpty (EmailRules.activeRules (Option.ofObj cfg.EmailRules |> Option.defaultValue [||])))
-        if wantsMail then [| "Calendars.Read"; "Mail.Read" |]
-        else [| "Calendars.Read" |]
+    /// Scopes are requested per resource so a missing Mail.Read consent can
+    /// never break calendar polling: the calendar only ever asks for
+    /// Calendars.Read, and the mail source asks for Mail.Read on its own.
+    let calendarScopes = [| "Calendars.Read" |]
+    let mailScopes = [| "Mail.Read" |]
 
     /// Attach a DPAPI-protected cache so the refresh token survives restarts.
     let private attachCache (app: IPublicClientApplication) =
@@ -35,40 +33,56 @@ module Auth =
             return ()
         }
 
-    type TokenProvider(app: IPublicClientApplication, scopes: string[]) =
-        /// Either silently refresh or, on first use, pop the system browser
-        /// for interactive login. Subsequent restarts should never hit the
-        /// interactive path because the cache holds the refresh token.
-        member _.GetAccessToken(?ct: CancellationToken) : Async<string> =
+    /// Raised when a token needs an interactive sign-in that the caller
+    /// didn't allow (e.g. a scope the user hasn't consented to yet).
+    exception SignInRequired of string
+
+    type TokenProvider(app: IPublicClientApplication) =
+
+        let interactive (scopes: string[]) (ct: CancellationToken) =
+            app.AcquireTokenInteractive(scopes)
+                .WithUseEmbeddedWebView(false)
+                .WithSystemWebViewOptions(SystemWebViewOptions())
+                .ExecuteAsync(ct)
+            |> Async.AwaitTask
+
+        /// Silently refresh a token for `scopes`, falling back to the system
+        /// browser only when `allowInteractive` is set; otherwise a needed
+        /// sign-in raises `SignInRequired`.
+        member _.GetTokenFor(scopes: string[], allowInteractive: bool, ?ct: CancellationToken) : Async<string> =
             async {
                 let ct = defaultArg ct CancellationToken.None
-                let! accounts =
-                    app.GetAccountsAsync() |> Async.AwaitTask
-                let account = accounts |> Seq.tryHead
-                try
-                    let! result =
-                        match account with
-                        | Some acc ->
-                            app.AcquireTokenSilent(scopes, acc)
-                                .ExecuteAsync(ct)
-                            |> Async.AwaitTask
-                        | None ->
-                            app.AcquireTokenInteractive(scopes)
-                                .WithUseEmbeddedWebView(false)
-                                .WithSystemWebViewOptions(SystemWebViewOptions())
-                                .ExecuteAsync(ct)
-                            |> Async.AwaitTask
-                    return result.AccessToken
-                with
-                | :? MsalUiRequiredException ->
-                    let! result =
-                        app.AcquireTokenInteractive(scopes)
-                            .WithUseEmbeddedWebView(false)
-                            .WithSystemWebViewOptions(SystemWebViewOptions())
-                            .ExecuteAsync(ct)
-                        |> Async.AwaitTask
-                    return result.AccessToken
+                let! accounts = app.GetAccountsAsync() |> Async.AwaitTask
+                let needSignIn () =
+                    async {
+                        if not allowInteractive then
+                            return raise (SignInRequired(String.Join(", ", scopes)))
+                        else
+                            let! r = interactive scopes ct
+                            return r.AccessToken
+                    }
+                match Seq.tryHead accounts with
+                | None -> return! needSignIn ()
+                | Some acc ->
+                    let! silent =
+                        async {
+                            try
+                                let! r = app.AcquireTokenSilent(scopes, acc).ExecuteAsync(ct) |> Async.AwaitTask
+                                return Some r.AccessToken
+                            with
+                            | :? MsalUiRequiredException -> return None
+                            | :? AggregateException as ae when (ae.InnerException :? MsalUiRequiredException) -> return None
+                        }
+                    match silent with
+                    | Some t -> return t
+                    | None -> return! needSignIn ()
             }
+
+        /// Calendar token: silent, or the system browser on first use.
+        /// Subsequent restarts should never hit the interactive path because
+        /// the cache holds the refresh token.
+        member this.GetAccessToken(?ct: CancellationToken) : Async<string> =
+            this.GetTokenFor(calendarScopes, true, ?ct = ct)
 
         member _.HasCachedAccount() : Async<bool> =
             async {
@@ -99,5 +113,5 @@ module Auth =
                     .WithRedirectUri("http://localhost")
                     .Build()
             do! attachCache app
-            return TokenProvider(app, scopesFor cfg)
+            return TokenProvider(app)
         }

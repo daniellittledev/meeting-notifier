@@ -41,7 +41,12 @@ module Config =
           EmailRules: EmailRule[]
           /// How far back to look for matching emails when the app starts,
           /// so reminders that arrived just before a restart aren't lost.
-          EmailLookbackMinutes: int }
+          EmailLookbackMinutes: int
+          /// Extra folders (by display name, case-insensitive) whose mail
+          /// never raises a reminder, on top of the built-in Sent Items,
+          /// Deleted Items, Junk Email, Drafts and Outbox. Sub-folders are
+          /// skipped too.
+          EmailExcludedFolders: string[] }
 
     let appDataDir =
         let root = Environment.GetFolderPath Environment.SpecialFolder.ApplicationData
@@ -62,7 +67,8 @@ module Config =
           SoundOnFinalOnly = false
           Volume = 70
           EmailRules = [||]
-          EmailLookbackMinutes = 60 }
+          EmailLookbackMinutes = 60
+          EmailExcludedFolders = [||] }
 
     let private jsonOptions () =
         let opts =
@@ -112,6 +118,10 @@ module Config =
             Volume = volume
             EmailRules = rules
             EmailLookbackMinutes = lookback
+            EmailExcludedFolders =
+                (if isNull cfg.EmailExcludedFolders then [||] else cfg.EmailExcludedFolders)
+                |> Array.filter (String.IsNullOrWhiteSpace >> not)
+                |> Array.map (fun f -> f.Trim())
             ClientId = (if isNull cfg.ClientId then "" else cfg.ClientId)
             TenantId = (if isNull cfg.TenantId then "" else cfg.TenantId)
             AudioDeviceName =

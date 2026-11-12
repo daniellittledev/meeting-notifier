@@ -68,7 +68,7 @@ module EmailStore =
         { store with Pending = store.Pending @ fresh }
 
     /// Check an email off: drop it from Pending and remember it as done.
-    let markDone (id: EmailId) (store: EmailStore) : EmailStore =
+    let private markOneDone (store: EmailStore) (id: EmailId) : EmailStore =
         let received =
             store.Pending
             |> List.tryFind (fun a -> a.Email.Id = id)
@@ -80,6 +80,10 @@ module EmailStore =
                 Pending = store.Pending |> List.filter (fun a -> a.Email.Id <> id)
                 Completed = Map.add id r store.Completed }
 
+    /// Check off several emails at once (e.g. "Dismiss all").
+    let markDone (ids: EmailId list) (store: EmailStore) : EmailStore =
+        List.fold markOneDone store ids
+
     let withSince (since: DateTimeOffset) (store: EmailStore) : EmailStore =
         { store with Since = Some since }
 
@@ -87,6 +91,23 @@ module EmailStore =
     let prune (now: DateTimeOffset) (store: EmailStore) : EmailStore =
         let cutoff = now - completedRetention
         { store with Completed = store.Completed |> Map.filter (fun _ r -> r >= cutoff) }
+
+    /// The cursor moves every poll; only persist that movement once it's
+    /// drifted this far, so an idle day isn't a write per poll. On restart
+    /// the overlap and the Completed set cover the unsaved stretch.
+    let cursorSaveInterval = TimeSpan.FromMinutes 10.0
+
+    /// Does `current` differ enough from what's on disk (`saved`) to be
+    /// worth writing? Any change to Pending/Completed always is.
+    let needsSave (saved: EmailStore) (current: EmailStore) : bool =
+        let cursorMoved =
+            match saved.Since, current.Since with
+            | None, Some _ -> true
+            | Some s, Some c -> c - s >= cursorSaveInterval
+            | _ -> false
+        saved.Pending <> current.Pending
+        || saved.Completed <> current.Completed
+        || cursorMoved
 
     /// Where the first poll after launch should start: from the saved cursor
     /// (capped at `maxCatchUp`), or `lookbackMinutes` back on a first run.
