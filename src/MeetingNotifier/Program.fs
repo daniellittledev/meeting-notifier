@@ -65,13 +65,20 @@ module Program =
                 GraphClient.GraphCalendarSource(http, tokenProvider)
                 :> GraphClient.ICalendarSource
 
+            // Only poll mail when there are rules to match against.
+            let mailSource =
+                if List.isEmpty (EmailRules.activeRules cfg.EmailRules) then None
+                else
+                    Some(GraphClient.GraphMailSource(http, tokenProvider)
+                         :> GraphClient.IMailSource)
+
             // Install a WinForms sync context so we can Post onto the UI
             // thread from the background polling loop.
             let uiContext = WindowsFormsSynchronizationContext()
             SynchronizationContext.SetSynchronizationContext uiContext
 
             use tray =
-                new TrayApp.TrayContext(cfg, source, tokenProvider, uiContext)
+                new TrayApp.TrayContext(cfg, source, mailSource, tokenProvider, uiContext)
             Application.Run(tray)
             http.Dispose()
             0

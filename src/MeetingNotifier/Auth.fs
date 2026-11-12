@@ -12,7 +12,13 @@ open Microsoft.Identity.Client.Extensions.Msal
 /// types never leak upward.
 module Auth =
 
-    let private scopes = [| "Calendars.Read" |]
+    /// Delegated scopes to request. Mail.Read is only asked for when email
+    /// rules are configured, so calendar-only users don't need to grant it.
+    let scopesFor (cfg: Config.AppConfig) : string[] =
+        let wantsMail =
+            not (List.isEmpty (EmailRules.activeRules (Option.ofObj cfg.EmailRules |> Option.defaultValue [||])))
+        if wantsMail then [| "Calendars.Read"; "Mail.Read" |]
+        else [| "Calendars.Read" |]
 
     /// Attach a DPAPI-protected cache so the refresh token survives restarts.
     let private attachCache (app: IPublicClientApplication) =
@@ -29,7 +35,7 @@ module Auth =
             return ()
         }
 
-    type TokenProvider(app: IPublicClientApplication) =
+    type TokenProvider(app: IPublicClientApplication, scopes: string[]) =
         /// Either silently refresh or, on first use, pop the system browser
         /// for interactive login. Subsequent restarts should never hit the
         /// interactive path because the cache holds the refresh token.
@@ -93,5 +99,5 @@ module Auth =
                     .WithRedirectUri("http://localhost")
                     .Build()
             do! attachCache app
-            return TokenProvider(app)
+            return TokenProvider(app, scopesFor cfg)
         }

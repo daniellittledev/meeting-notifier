@@ -19,6 +19,11 @@ before start. When an alert fires, the app surfaces it hard-to-miss:
    NAudio (so speakers get it even if headphones are the default output). You
    can choose to chime on the final 2-minute reminder only.
 
+It can also surface **email reminders**: incoming mail that matches your
+rules (e.g. GitHub "review requested" emails) shows up in the same window as
+a to-do you check off, with a small, soft ding instead of the meeting chime.
+See [Email reminders](#email-reminders).
+
 ## Requirements
 
 - Windows 10 1809+ / Windows 11
@@ -27,6 +32,7 @@ before start. When an alert fires, the app surfaces it hard-to-miss:
   public-client app with:
   - **Delegated** `Calendars.Read` permission (admin-consented if the tenant
     requires it)
+  - **Delegated** `Mail.Read` too, *only* if you use email reminders
   - Redirect URI `http://localhost` (mobile and desktop applications)
 
 ## First-run setup
@@ -44,7 +50,8 @@ registration*:
 - **Supported account types:** accounts in your organizational directory.
 - **Redirect URI:** *Mobile and desktop applications* → `http://localhost`.
 - **API permissions:** *Microsoft Graph* → *Delegated* → `Calendars.Read`
-  (admin-consented if your tenant requires it).
+  (admin-consented if your tenant requires it). Add `Mail.Read` as well if
+  you want email reminders.
 
 Copy the **Application (client) ID** and **Directory (tenant) ID** from the
 app's Overview page into the dialog. (`tenantId` also accepts a domain such
@@ -63,7 +70,9 @@ this file directly:
   "finalReminderMinutes": 2,
   "audioDeviceName": "",
   "pollIntervalSeconds": 60,
-  "soundOnFinalOnly": false
+  "soundOnFinalOnly": false,
+  "emailRules": [],
+  "emailLookbackMinutes": 60
 }
 ```
 
@@ -86,6 +95,46 @@ reminder) and again `finalReminderMinutes` before start (the always-on
   automatically capped so it's never slower than the final-reminder window
   (e.g. a 2-minute final reminder forces a poll of at most 120s), otherwise a
   tick could step over the window and miss the alert.
+
+## Email reminders
+
+Add rules to `emailRules` and any new email that matches one appears in the
+Reminders window as a row you have to tick off — handy for pull requests
+and other things where someone is waiting on you:
+
+```json
+"emailRules": [
+  { "name": "PR reviews", "from": "notifications@github.com", "subjectContains": "requested your review" },
+  { "name": "Azure DevOps", "from": "azuredevops@microsoft.com" },
+  { "subjectContains": "action required" }
+]
+```
+
+- `from` — partial, case-insensitive match against the sender's address
+  *or* display name (`"github.com"` is enough).
+- `subjectContains` — partial, case-insensitive match against the subject.
+- When a rule sets both, both must match. A rule with neither is ignored.
+- `name` — optional label shown on the row; defaults to the criteria.
+- `emailLookbackMinutes` — on launch, also pick up matching mail received
+  this many minutes earlier, so a restart doesn't lose reminders (default:
+  60).
+
+Matching mail is checked every poll across all your mail folders (so mail
+your inbox rules move into sub-folders still counts), skipping Sent, Drafts,
+Deleted, Junk and Outbox. Each email alerts once:
+
+- A soft single-note ding plays (if **Play sound** is on) — not the big
+  meeting chime — and the window appears and flashes without stealing focus.
+- **Open** (↗) opens the email in Outlook on the web; the row stays.
+- **Done** (✓) checks it off and removes the row.
+- **Snooze all** / the title-bar X only snooze meetings; email rows stay,
+  so the window minimises to the taskbar until you tick them off.
+  **Dismiss all** clears everything, emails included.
+
+Email reminders need the `Mail.Read` permission on your app registration.
+It's only requested when at least one rule is configured, so the first launch
+after adding rules will ask you to sign in / consent again. If mail can't be
+read, the tray indicator shows **Not connected** with an `Email:` reason.
 
 Configuration is read once at launch, so **edits only take effect after you
 restart Meeting Notifier**. The Settings menu item reminds you of this when
@@ -155,7 +204,8 @@ dotnet test tests/MeetingNotifier.Tests
 
 ## Replacing the chime
 
-`src/MeetingNotifier/alert.wav` is a placeholder two-tone chime. Replace
+`src/MeetingNotifier/alert.wav` is a placeholder two-tone chime (and
+`email.wav` the softer email ding). Replace
 it with anything louder/more distinctive — it's embedded as a resource at
 build time, so just drop in a new `alert.wav` and rebuild.
 
@@ -167,8 +217,9 @@ Program.fs          entry point, wiring
        ├─ Config.fs            %APPDATA%\...\config.json load/save
        ├─ Auth.fs              MSAL public client + persistent cache
        ├─ GraphParsing.fs      PURE: Graph JSON → domain Meeting (+ paging)
-       ├─ GraphClient.fs       ICalendarSource + Graph implementation
+       ├─ GraphClient.fs       ICalendarSource/IMailSource + Graph implementations
        ├─ AlertEngine.fs       PURE: which alerts fire this tick
+       ├─ EmailRules.fs        PURE: email rule matching + polling cursor
        ├─ Notifications.fs     Toast + FlashWindowEx + NAudio
        ├─ AumidRegistration.fs Start-Menu .lnk with AUMID for toasts
        ├─ Startup.fs           HKCU Run key toggle

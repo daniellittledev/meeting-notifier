@@ -50,16 +50,16 @@ module Notifications =
                         with _ -> None
             with _ -> None
 
-        /// Extract `alert.wav` from embedded resources into a temp file so
+        /// Extract an embedded `.wav` from resources into a temp file so
         /// NAudio's reader can stream from disk. The temp file name is
         /// stamped with the assembly version so a new build (potentially
         /// shipping a different chime) doesn't keep replaying a stale
         /// extraction left behind by an older version.
-        let private embeddedWavPath () =
+        let private embeddedWavPath (fileName: string) =
             let asm = Assembly.GetExecutingAssembly()
             let resourceName =
                 asm.GetManifestResourceNames()
-                |> Array.tryFind (fun n -> n.EndsWith "alert.wav")
+                |> Array.tryFind (fun n -> n.EndsWith("." + fileName) || n = fileName)
             match resourceName with
             | None -> None
             | Some name ->
@@ -70,18 +70,20 @@ module Notifications =
                 let tempPath =
                     Path.Combine(
                         Path.GetTempPath(),
-                        sprintf "meeting-notifier-alert-%s.wav" version)
+                        sprintf "meeting-notifier-%s-%s.wav"
+                            (Path.GetFileNameWithoutExtension fileName) version)
                 if not (File.Exists tempPath) then
                     use rs = asm.GetManifestResourceStream name
                     use fs = File.Create tempPath
                     rs.CopyTo fs
                 Some tempPath
 
-        /// Fire-and-forget playback at the configured volume (0-100).
-        let play (cfg: Config.AppConfig) =
+        /// Fire-and-forget playback of an embedded wav at the configured
+        /// volume (0-100).
+        let private playResource (fileName: string) (cfg: Config.AppConfig) =
             System.Threading.Tasks.Task.Run(fun () ->
                 try
-                    match embeddedWavPath () with
+                    match embeddedWavPath fileName with
                     | None -> ()
                     | Some wav ->
                         match pickDevice cfg.AudioDeviceName with
@@ -99,6 +101,12 @@ module Notifications =
                             out.Play()
                             waiter.Wait(TimeSpan.FromSeconds 10.0) |> ignore
                 with _ -> ()) |> ignore
+
+        /// The big two-tone meeting chime.
+        let play (cfg: Config.AppConfig) = playResource "alert.wav" cfg
+
+        /// The small, soft ding for email reminders.
+        let playSoft (cfg: Config.AppConfig) = playResource "email.wav" cfg
 
     // ============ Unified fire function ============
 
@@ -122,3 +130,16 @@ module Notifications =
         =
         if shouldChime cfg pa then Audio.play cfg
         window.AddReminder(pa, onAction)
+
+    /// Surface an email reminder: a soft ding (when sound is on and `chime`
+    /// is set, so a batch dings once) and a row in the reminders window.
+    /// Must be called on the UI thread.
+    let fireEmailAlert
+        (cfg: Config.AppConfig)
+        (window: ReminderWindow)
+        (chime: bool)
+        (ea: EmailAlert)
+        (onAction: EmailAction -> unit)
+        =
+        if chime && cfg.SoundEnabled then Audio.playSoft cfg
+        window.AddEmail(ea, onAction)

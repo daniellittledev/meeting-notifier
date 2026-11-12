@@ -49,6 +49,7 @@ module TrayApp =
 
     type TrayContext(cfg: Config.AppConfig,
                      source: GraphClient.ICalendarSource,
+                     mailSource: GraphClient.IMailSource option,
                      tokenProvider: Auth.TokenProvider,
                      uiContext: SynchronizationContext) =
         inherit ApplicationContext()
@@ -56,6 +57,9 @@ module TrayApp =
         let mutable cfg = cfg
         let mutable state = AlertState.empty
         let mutable lastSnapshot : Meeting list = []
+        let emailRules = EmailRules.activeRules cfg.EmailRules
+        let mutable emailState =
+            EmailRules.initial DateTimeOffset.Now cfg.EmailLookbackMinutes
         // A downloaded, ready-to-apply update, once a check has found one.
         let mutable preparedUpdate
             : (Velopack.UpdateManager * Velopack.UpdateInfo) option = None
@@ -242,17 +246,63 @@ module TrayApp =
             | Dismiss ->
                 updateState (AlertEngine.markDismissed pa.Meeting.Id)
 
+        let handleEmailAction (action: EmailAction) =
+            match action with
+            | OpenEmail url ->
+                try
+                    Process.Start(ProcessStartInfo(url, UseShellExecute = true))
+                    |> ignore
+                with _ -> ()
+            // Nothing to record: an email is only ever alerted once (the
+            // cursor's Seen set), so removing the row is all Done needs.
+            | Done -> ()
+
+        /// Fetch new mail and surface any that match a rule. Returns the
+        /// error message on failure so the status indicator can show it.
+        let pollEmails (now: DateTimeOffset) : Async<string option> =
+            async {
+                match mailSource with
+                | None -> return None
+                | Some mail ->
+                    let since = lock stateLock (fun () -> emailState.Since)
+                    let! result = mail.GetEmailsSince since
+                    match result with
+                    | Error msg ->
+                        eprintfn "messages failed: %s" msg
+                        return Some msg
+                    | Ok emails ->
+                        let alerts =
+                            lock stateLock (fun () ->
+                                let a, s' =
+                                    EmailRules.computeNew now emailRules emails emailState
+                                emailState <- s'
+                                a)
+                        // One ding per batch, not one per email.
+                        alerts
+                        |> List.iteri (fun i ea ->
+                            postToUi (fun () ->
+                                Notifications.fireEmailAlert
+                                    cfg (getWindow ()) (i = 0) ea handleEmailAction))
+                        return None
+            }
+
         let runTick () =
             async {
                 let now = DateTimeOffset.Now
                 let endT = now + TimeSpan.FromHours 24.0
                 let! result = source.GetMeetingsInWindow(now, endT)
-                match result with
-                | Error msg ->
+                let! emailError = pollEmails now
+                match result, emailError with
+                | Error msg, _ ->
                     eprintfn "calendarView failed: %s" msg
                     postToUi (fun () -> setConnection (Disconnected msg))
-                | Ok meetings ->
+                | Ok _, Some msg ->
+                    postToUi (fun () -> setConnection (Disconnected $"Email: {msg}"))
+                | Ok _, None ->
                     postToUi (fun () -> setConnection Connected)
+                match result with
+                | Error _ -> ()
+                | Ok meetings ->
                     let snapshot = meetings
                     let pending =
                         lock stateLock (fun () ->

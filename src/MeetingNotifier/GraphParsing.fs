@@ -117,3 +117,97 @@ module GraphParsing =
         + ",isReminderOn,reminderMinutesBeforeStart"
         + "&$orderby=start/dateTime"
         + "&$top=50"
+
+    // ----- Mail: /me/messages
+
+    [<CLIMutable>]
+    type GraphEmailAddress =
+        { name: string
+          address: string }
+
+    [<CLIMutable>]
+    type GraphRecipient =
+        { emailAddress: GraphEmailAddress }
+
+    [<CLIMutable>]
+    type GraphMessage =
+        { id: string
+          subject: string
+          from: GraphRecipient
+          receivedDateTime: string
+          webLink: string
+          parentFolderId: string }
+
+    [<CLIMutable>]
+    type GraphMessagesResponse =
+        { value: GraphMessage[]
+          [<JsonPropertyName("@odata.nextLink")>] nextLink: string option }
+
+    /// Graph message timestamps are ISO-8601 UTC ("...Z").
+    let parseGraphTimestamp (s: string) : DateTimeOffset =
+        match DateTimeOffset.TryParse(
+                s,
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal ||| DateTimeStyles.AdjustToUniversal) with
+        | true, v -> v
+        | _ -> DateTimeOffset.MinValue
+
+    let messageToDomain (m: GraphMessage) : Email =
+        let addr =
+            if isNull (box m.from) || isNull (box m.from.emailAddress) then None
+            else Some m.from.emailAddress
+        let orEmpty (s: string) = if isNull s then "" else s
+        { Id = EmailId m.id
+          Subject = (if String.IsNullOrWhiteSpace m.subject then "(no subject)" else m.subject)
+          FromName = addr |> Option.map (fun a -> orEmpty a.name) |> Option.defaultValue ""
+          FromAddress = addr |> Option.map (fun a -> orEmpty a.address) |> Option.defaultValue ""
+          Received = parseGraphTimestamp m.receivedDateTime
+          WebLink = opt m.webLink }
+
+    /// Deserialise one /me/messages page into (parentFolderId, Email) pairs
+    /// plus the nextLink. The folder id is kept so the caller can drop mail
+    /// sitting in Sent/Drafts/Deleted/Junk.
+    let parseMessagesPage (body: string) : (string * Email) list * string option =
+        let parsed = JsonSerializer.Deserialize<GraphMessagesResponse>(body, jsonOpts)
+        if isNull (box parsed) then [], None
+        else
+            let emails =
+                if isNull parsed.value then []
+                else
+                    parsed.value
+                    |> Array.filter (fun m -> not (isNull (box m)) && not (String.IsNullOrEmpty m.id))
+                    |> Array.map (fun m ->
+                        (if isNull m.parentFolderId then "" else m.parentFolderId), messageToDomain m)
+                    |> Array.toList
+            let next =
+                match parsed.nextLink with
+                | Some s when not (String.IsNullOrWhiteSpace s) -> Some s
+                | _ -> None
+            emails, next
+
+    /// First /me/messages URL: everything received since `since` (all
+    /// folders, so mail routed into sub-folders by inbox rules still counts),
+    /// newest first.
+    let buildMessagesUrl (since: DateTimeOffset) =
+        let ts =
+            since.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture)
+        let filter = Uri.EscapeDataString $"receivedDateTime ge {ts} and isDraft eq false"
+        "https://graph.microsoft.com/v1.0/me/messages"
+        + $"?$filter={filter}"
+        + "&$select=id,subject,from,receivedDateTime,webLink,parentFolderId"
+        + "&$orderby=receivedDateTime desc"
+        + "&$top=50"
+
+    /// Well-known folders whose contents never count as incoming reminders.
+    let excludedWellKnownFolders =
+        [ "sentitems"; "drafts"; "deleteditems"; "junkemail"; "outbox" ]
+
+    let buildFolderUrl (wellKnownName: string) =
+        $"https://graph.microsoft.com/v1.0/me/mailFolders/{wellKnownName}?$select=id"
+
+    [<CLIMutable>]
+    type GraphFolder = { id: string }
+
+    let parseFolderId (body: string) : string option =
+        let parsed = JsonSerializer.Deserialize<GraphFolder>(body, jsonOpts)
+        if isNull (box parsed) then None else opt parsed.id

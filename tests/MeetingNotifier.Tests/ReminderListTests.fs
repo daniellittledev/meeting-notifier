@@ -55,8 +55,56 @@ let ``remove drops the matching reminder`` () =
         ReminderList.empty
         |> ReminderList.add (pending "m1" "First" None)
         |> ReminderList.add (pending "m2" "Second" None)
-        |> ReminderList.remove (MeetingId "m1")
+        |> ReminderList.remove (ReminderList.MeetingKey (MeetingId "m1"))
     list |> List.map (fun r -> r.Subject) |> should equal [ "Second" ]
+
+let private emailAlert id subject =
+    { Email =
+        { Id = EmailId id
+          Subject = subject
+          FromName = "GitHub"
+          FromAddress = "notifications@github.com"
+          Received = now
+          WebLink = Some "https://outlook/msg" }
+      RuleName = "PR reviews" }
+
+[<Fact>]
+let ``addEmail adds an email row with sender and rule in the subtitle`` () =
+    let list = ReminderList.empty |> ReminderList.addEmail (emailAlert "e1" "Review requested")
+    list.Head.Subject |> should equal "Review requested"
+    list.Head.Subtitle |> should equal "GitHub · PR reviews"
+
+[<Fact>]
+let ``meeting and email ids never collide`` () =
+    let list =
+        ReminderList.empty
+        |> ReminderList.add (pending "x" "Meeting" None)
+        |> ReminderList.addEmail (emailAlert "x" "Email")
+    list |> List.length |> should equal 2
+
+[<Fact>]
+let ``meetings and emails partition the list`` () =
+    let list =
+        ReminderList.empty
+        |> ReminderList.add (pending "m1" "Meeting" None)
+        |> ReminderList.addEmail (emailAlert "e1" "Email")
+    ReminderList.meetings list |> List.map (fun r -> r.Subject) |> should equal [ "Meeting" ]
+    ReminderList.emails list |> List.map (fun r -> r.Subject) |> should equal [ "Email" ]
+
+[<Fact>]
+let ``remove drops an email row by key`` () =
+    let list =
+        ReminderList.empty
+        |> ReminderList.addEmail (emailAlert "e1" "Email")
+        |> ReminderList.remove (ReminderList.EmailKey (EmailId "e1"))
+    ReminderList.isEmpty list |> should be True
+
+[<Fact>]
+let ``timeAgoText renders recent and older emails`` () =
+    ReminderList.timeAgoText now (now - TimeSpan.FromSeconds 20.0) |> should equal "just now"
+    ReminderList.timeAgoText now (now - TimeSpan.FromMinutes 1.0) |> should equal "1 min ago"
+    ReminderList.timeAgoText now (now - TimeSpan.FromMinutes 45.0) |> should equal "45 mins ago"
+    ReminderList.timeAgoText now (now - TimeSpan.FromMinutes 130.0) |> should equal "2 hrs ago"
 
 [<Fact>]
 let ``dismissAll empties the list`` () =

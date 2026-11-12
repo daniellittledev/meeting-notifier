@@ -13,7 +13,9 @@ let private baseCfg : Config.AppConfig =
       KeepOnTop = true
       SoundEnabled = true
       SoundOnFinalOnly = false
-      Volume = 70 }
+      Volume = 70
+      EmailRules = [||]
+      EmailLookbackMinutes = 60 }
 
 [<Fact>]
 let ``sanitize defaults a non-positive final reminder`` () =
@@ -79,3 +81,22 @@ let ``sanitize replaces null strings with empty`` () =
     s.ClientId |> should equal ""
     s.TenantId |> should equal ""
     s.AudioDeviceName |> should equal ""
+
+[<Fact>]
+let ``sanitize replaces null email rules with an empty array`` () =
+    let cfg = { baseCfg with EmailRules = null }
+    (Config.sanitize cfg).EmailRules |> should equal ([||] : Config.EmailRule[])
+
+[<Fact>]
+let ``sanitize replaces null rule fields with empty strings`` () =
+    let rule : Config.EmailRule = { Name = null; From = "github.com"; SubjectContains = null }
+    let cfg = { baseCfg with EmailRules = [| rule |] }
+    let r = (Config.sanitize cfg).EmailRules.[0]
+    r.Name |> should equal ""
+    r.From |> should equal "github.com"
+    r.SubjectContains |> should equal ""
+
+[<Fact>]
+let ``sanitize defaults a missing email lookback`` () =
+    let cfg = { baseCfg with EmailLookbackMinutes = 0 }
+    (Config.sanitize cfg).EmailLookbackMinutes |> should equal 60

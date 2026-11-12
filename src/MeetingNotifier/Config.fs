@@ -10,6 +10,17 @@ open System.Text.Json.Serialization.Custom
 /// `%APPDATA%\MeetingNotifier\config.json`.
 module Config =
 
+    /// A rule that turns a matching incoming email into a check-off reminder.
+    /// `From` and `SubjectContains` are case-insensitive partial matches; when
+    /// both are set both must match. A rule with neither set is ignored.
+    [<CLIMutable>]
+    type EmailRule =
+        { Name: string
+          /// Matched against the sender's address and display name, e.g.
+          /// "notifications@github.com" or just "github.com".
+          From: string
+          SubjectContains: string }
+
     [<CLIMutable>]
     type AppConfig =
         { ClientId: string
@@ -24,7 +35,13 @@ module Config =
           /// When true, only the final reminder chimes; earlier reminders
           /// show silently.
           SoundOnFinalOnly: bool
-          Volume: int }
+          Volume: int
+          /// Rules for emails to surface as reminders. Empty disables email
+          /// polling entirely (and the Mail.Read permission isn't requested).
+          EmailRules: EmailRule[]
+          /// How far back to look for matching emails when the app starts,
+          /// so reminders that arrived just before a restart aren't lost.
+          EmailLookbackMinutes: int }
 
     let appDataDir =
         let root = Environment.GetFolderPath Environment.SpecialFolder.ApplicationData
@@ -43,7 +60,9 @@ module Config =
           KeepOnTop = true
           SoundEnabled = true
           SoundOnFinalOnly = false
-          Volume = 70 }
+          Volume = 70
+          EmailRules = [||]
+          EmailLookbackMinutes = 60 }
 
     let private jsonOptions () =
         let opts =
@@ -74,10 +93,25 @@ module Config =
         let finalWindowSecs = finalMinutes * 60
         let poll = max 1 (min configuredPoll finalWindowSecs)
         let volume = max 0 (min 100 cfg.Volume)
+        let orEmpty (s: string) = if isNull s then "" else s
+        let rules =
+            (if isNull cfg.EmailRules then [||] else cfg.EmailRules)
+            |> Array.filter (fun r -> not (isNull (box r)))
+            |> Array.map (fun r ->
+                { Name = orEmpty r.Name
+                  From = orEmpty r.From
+                  SubjectContains = orEmpty r.SubjectContains })
+        // A missing field deserialises to 0, so treat non-positive as "use
+        // the default" rather than "no lookback".
+        let lookback =
+            if cfg.EmailLookbackMinutes <= 0 then defaults.EmailLookbackMinutes
+            else cfg.EmailLookbackMinutes
         { cfg with
             FinalReminderMinutes = finalMinutes
             PollIntervalSeconds = poll
             Volume = volume
+            EmailRules = rules
+            EmailLookbackMinutes = lookback
             ClientId = (if isNull cfg.ClientId then "" else cfg.ClientId)
             TenantId = (if isNull cfg.TenantId then "" else cfg.TenantId)
             AudioDeviceName =

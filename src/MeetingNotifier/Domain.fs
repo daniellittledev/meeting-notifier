@@ -58,3 +58,30 @@ module Domain =
         | Join of url: string
         | Snooze of until: DateTimeOffset
         | Dismiss
+
+    // ----- Email reminders
+
+    /// Graph message id. Requested as an immutable id so it survives the
+    /// message being moved between folders.
+    type EmailId = EmailId of string
+
+    type Email =
+        { Id: EmailId
+          Subject: string
+          FromName: string
+          FromAddress: string
+          Received: DateTimeOffset
+          WebLink: string option }
+
+    /// An email that matched one of the configured rules and should be
+    /// surfaced as a check-off reminder.
+    type EmailAlert =
+        { Email: Email
+          /// Human-readable label of the rule that matched.
+          RuleName: string }
+
+    /// The user action taken on an email reminder row. Opening keeps the row
+    /// (it's a to-do until checked off); Done removes it.
+    type EmailAction =
+        | OpenEmail of url: string
+        | Done
