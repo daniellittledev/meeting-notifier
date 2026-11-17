@@ -48,19 +48,22 @@ module EmailRules =
     /// Folder ids to scan in addition to the Inbox: the id of every folder
     /// whose display name matches one of `includedNames` (case-insensitive,
     /// exact name, no sub-folders — a sub-folder is only scanned when named
-    /// in its own right). The Inbox is always scanned and isn't listed here.
+    /// in its own right). The Inbox is always scanned, so naming it here is a
+    /// no-op rather than a second scan of the same folder.
     let includedFolderIds
         (folders: MailFolder list)
         (includedNames: string list)
         : Set<string>
         =
         let names = includedNames |> List.map (fun n -> n.Trim()) |> List.filter hasText
+        let isInbox (f: MailFolder) =
+            String.Equals(f.DisplayName.Trim(), "Inbox", StringComparison.OrdinalIgnoreCase)
         let nameMatches (f: MailFolder) =
             names
             |> List.exists (fun n ->
                 String.Equals(f.DisplayName.Trim(), n, StringComparison.OrdinalIgnoreCase))
         folders
-        |> List.filter nameMatches
+        |> List.filter (fun f -> nameMatches f && not (isInbox f))
         |> List.map (fun f -> f.FolderId)
         |> Set.ofList
 

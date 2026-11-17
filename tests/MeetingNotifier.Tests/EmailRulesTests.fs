@@ -157,3 +157,8 @@ let ``no configured names includes nothing beyond the inbox`` () =
 [<Fact>]
 let ``an unknown folder name resolves to nothing`` () =
     EmailRules.includedFolderIds tree [ "Nope" ] |> should equal (Set.empty: Set<string>)
+
+[<Fact>]
+let ``naming the Inbox is a no-op since it is always scanned`` () =
+    EmailRules.includedFolderIds tree [ "inbox"; "Newsletters" ]
+    |> should equal (set [ "news" ])
