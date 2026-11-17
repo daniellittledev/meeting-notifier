@@ -70,7 +70,7 @@ module Program =
                 if List.isEmpty (EmailRules.activeRules cfg.EmailRules) then None
                 else
                     Some(GraphClient.GraphMailSource(
-                        http, tokenProvider, List.ofArray cfg.EmailExcludedFolders)
+                        http, tokenProvider, List.ofArray cfg.EmailIncludedFolders)
                          :> GraphClient.IMailSource)
 
             // Install a WinForms sync context so we can Post onto the UI

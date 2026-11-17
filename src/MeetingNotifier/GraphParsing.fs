@@ -164,9 +164,9 @@ module GraphParsing =
           Received = parseGraphTimestamp m.receivedDateTime
           WebLink = opt m.webLink }
 
-    /// Deserialise one /me/messages page into (parentFolderId, Email) pairs
-    /// plus the nextLink. The folder id is kept so the caller can drop mail
-    /// sitting in Sent/Drafts/Deleted/Junk.
+    /// Deserialise one messages page into (parentFolderId, Email) pairs plus
+    /// the nextLink. The folder id rides along unused now that queries are
+    /// scoped to a single folder, kept only to avoid reshaping the parser.
     let parseMessagesPage (body: string) : (string * Email) list * string option =
         let parsed = JsonSerializer.Deserialize<GraphMessagesResponse>(body, jsonOpts)
         if isNull (box parsed) then [], None
@@ -185,34 +185,19 @@ module GraphParsing =
                 | _ -> None
             emails, next
 
-    /// First /me/messages URL: everything received since `since` (all
-    /// folders, so mail routed into sub-folders by inbox rules still counts),
-    /// OLDEST first, so if paging is cut short it's the newest mail that's
-    /// left for the next poll rather than older mail being skipped.
-    let buildMessagesUrl (since: DateTimeOffset) =
+    /// First messages URL for a single folder: everything received since
+    /// `since`, OLDEST first, so if paging is cut short it's the newest mail
+    /// that's left for the next poll rather than older mail being skipped.
+    /// `folderId` is a folder id or a well-known name such as "inbox".
+    let buildMessagesUrl (folderId: string) (since: DateTimeOffset) =
         let ts =
             since.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture)
         let filter = Uri.EscapeDataString $"receivedDateTime ge {ts} and isDraft eq false"
-        "https://graph.microsoft.com/v1.0/me/messages"
+        $"https://graph.microsoft.com/v1.0/me/mailFolders/{Uri.EscapeDataString folderId}/messages"
         + $"?$filter={filter}"
         + "&$select=id,subject,from,receivedDateTime,webLink,parentFolderId"
         + "&$orderby=receivedDateTime asc"
         + "&$top=50"
-
-    /// Built-in well-known folders whose contents (and sub-folders) never
-    /// count as incoming reminders.
-    let excludedWellKnownFolders =
-        [ "sentitems"; "drafts"; "deleteditems"; "junkemail"; "outbox" ]
-
-    let buildFolderUrl (wellKnownName: string) =
-        $"https://graph.microsoft.com/v1.0/me/mailFolders/{wellKnownName}?$select=id"
-
-    [<CLIMutable>]
-    type GraphFolder = { id: string }
-
-    let parseFolderId (body: string) : string option =
-        let parsed = JsonSerializer.Deserialize<GraphFolder>(body, jsonOpts)
-        if isNull (box parsed) then None else opt parsed.id
 
     [<CLIMutable>]
     type GraphMailFolder =

@@ -73,7 +73,7 @@ this file directly:
   "soundOnFinalOnly": false,
   "emailRules": [],
   "emailLookbackMinutes": 60,
-  "emailExcludedFolders": []
+  "emailIncludedFolders": []
 }
 ```
 
@@ -120,16 +120,15 @@ and other things where someone is waiting on you:
   up matching mail received this many minutes earlier (default: 60). After
   that the app resumes from where it last polled.
 
-- `emailExcludedFolders` — extra folders to ignore, by display name
-  (case-insensitive), e.g. `["Archive", "Newsletters"]`. Their sub-folders
-  are ignored too.
+- `emailIncludedFolders` — extra folders to scan in addition to the Inbox,
+  by display name (case-insensitive), e.g. `["Archive", "Newsletters"]`. A
+  sub-folder is only scanned when it's named here in its own right.
 
-Matching mail is checked every poll across all your mail folders (so mail
-your inbox rules move into sub-folders still counts). **Sent Items, Deleted
-Items, Junk Email, Drafts and Outbox — and everything inside them — are
-always skipped**, plus anything in `emailExcludedFolders`. The folder list is
-re-read hourly; if it can't be read, that poll is skipped rather than risk
-alerting on your own sent mail. Each email alerts once:
+Only your **Inbox** is scanned by default, which keeps Sent, Drafts, Deleted
+and Junk mail from ever raising a reminder. Add folders to
+`emailIncludedFolders` to scan them too; that list is resolved to folder ids
+hourly, and if it can't be read, that poll is skipped rather than guess. Each
+email alerts once:
 
 - A soft single-note ding plays (if **Play sound** is on) — not the big
   meeting chime — and the window appears and flashes without stealing focus.
