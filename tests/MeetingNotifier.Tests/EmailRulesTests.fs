@@ -121,7 +121,7 @@ let ``a truncated batch with nothing fetched leaves the cursor alone`` () =
     let _, s1 = EmailRules.computeNew now rules b start
     s1.Since |> should equal start.Since
 
-// ----- folder exclusion
+// ----- folder inclusion
 
 let private folder id name parent : MailFolder =
     { FolderId = id; DisplayName = name; ParentFolderId = parent }
@@ -136,21 +136,24 @@ let private tree =
       folder "news-sub" "Weekly" "news" ]
 
 [<Fact>]
-let ``built-in roots exclude their whole subtree`` () =
-    EmailRules.excludedFolderIds tree (set [ "deleted" ]) []
-    |> should equal (set [ "deleted"; "deleted-sub"; "deleted-sub-sub" ])
+let ``included names match case-insensitively and trim, exact folder only`` () =
+    EmailRules.includedFolderIds tree [ " newsLETTERS " ]
+    |> should equal (set [ "news" ])
 
 [<Fact>]
-let ``configured names match case-insensitively and include sub-folders`` () =
-    EmailRules.excludedFolderIds tree Set.empty [ " newsLETTERS " ]
+let ``a sub-folder is only included when named in its own right`` () =
+    EmailRules.includedFolderIds tree [ "Newsletters"; "Weekly" ]
     |> should equal (set [ "news"; "news-sub" ])
 
 [<Fact>]
-let ``folders outside excluded subtrees are kept`` () =
-    let excluded = EmailRules.excludedFolderIds tree (set [ "deleted" ]) [ "Newsletters" ]
-    excluded |> Set.contains "inbox" |> should be False
-    excluded |> Set.contains "gh" |> should be False
+let ``several names resolve to their folder ids`` () =
+    EmailRules.includedFolderIds tree [ "GitHub"; "Newsletters" ]
+    |> should equal (set [ "gh"; "news" ])
 
 [<Fact>]
-let ``a root id missing from the tree is still excluded`` () =
-    EmailRules.excludedFolderIds [] (set [ "sent" ]) [] |> should equal (set [ "sent" ])
+let ``no configured names includes nothing beyond the inbox`` () =
+    EmailRules.includedFolderIds tree [] |> should equal (Set.empty: Set<string>)
+
+[<Fact>]
+let ``an unknown folder name resolves to nothing`` () =
+    EmailRules.includedFolderIds tree [ "Nope" ] |> should equal (Set.empty: Set<string>)

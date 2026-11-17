@@ -45,41 +45,24 @@ module EmailRules =
     let firstMatch (rules: Config.EmailRule list) (email: Email) : Config.EmailRule option =
         rules |> List.tryFind (fun r -> matches r email)
 
-    /// Folder ids to skip: the given root ids (the built-in well-known
-    /// folders), any folder whose display name matches a configured name
-    /// (case-insensitive), and every descendant of those.
-    let excludedFolderIds
+    /// Folder ids to scan in addition to the Inbox: the id of every folder
+    /// whose display name matches one of `includedNames` (case-insensitive,
+    /// exact name, no sub-folders — a sub-folder is only scanned when named
+    /// in its own right). The Inbox is always scanned and isn't listed here.
+    let includedFolderIds
         (folders: MailFolder list)
-        (rootIds: Set<string>)
-        (excludedNames: string list)
+        (includedNames: string list)
         : Set<string>
         =
-        let names = excludedNames |> List.map (fun n -> n.Trim()) |> List.filter hasText
+        let names = includedNames |> List.map (fun n -> n.Trim()) |> List.filter hasText
         let nameMatches (f: MailFolder) =
             names
             |> List.exists (fun n ->
                 String.Equals(f.DisplayName.Trim(), n, StringComparison.OrdinalIgnoreCase))
-        let childrenOf =
-            folders
-            |> List.groupBy (fun f -> f.ParentFolderId)
-            |> List.map (fun (parent, kids) -> parent, kids |> List.map (fun k -> k.FolderId))
-            |> Map.ofList
-        let roots =
-            folders
-            |> List.filter nameMatches
-            |> List.map (fun f -> f.FolderId)
-            |> Set.ofList
-            |> Set.union rootIds
-        let rec expand (acc: Set<string>) (frontier: string list) =
-            match frontier with
-            | [] -> acc
-            | id :: rest ->
-                let kids =
-                    Map.tryFind id childrenOf
-                    |> Option.defaultValue []
-                    |> List.filter (fun k -> not (Set.contains k acc))
-                expand (Set.union acc (Set.ofList kids)) (kids @ rest)
-        expand roots (Set.toList roots)
+        folders
+        |> List.filter nameMatches
+        |> List.map (fun f -> f.FolderId)
+        |> Set.ofList
 
     /// Polling cursor. `Since` is the receivedDateTime lower bound for the
     /// next fetch; `Seen` holds every email already evaluated (with its

@@ -111,11 +111,11 @@ module GraphClient =
     /// Upper bound on folders walked, purely defensive.
     let private maxFolders = 2000
 
-    type GraphMailSource(http: HttpClient, token: Auth.TokenProvider, excludedNames: string list) =
-        // The resolved excluded-folder ids and when they were resolved. Only
-        // set when EVERY lookup succeeded, so a transient failure can never
-        // leave e.g. Sent Items out of the set.
-        let mutable excludedCache : (Set<string> * DateTimeOffset) option = None
+    type GraphMailSource(http: HttpClient, token: Auth.TokenProvider, includedNames: string list) =
+        // The resolved ids of the explicitly-included folders and when they
+        // were resolved, cached so the folder tree isn't re-walked every poll.
+        // Only set on a fully-successful resolve.
+        let mutable includedCache : (Set<string> * DateTimeOffset) option = None
         // Mail.Read is normally consented in the calendar's sign-in prompt.
         // When it wasn't (signed in before any rules existed), prompt for it
         // at most once per session, so a refusal can't pop the browser every
@@ -176,42 +176,23 @@ module GraphClient =
                     return! walk (List.map fst items) withKids
             }
 
-        /// Ids of the built-in well-known folders. A 404 means the mailbox
-        /// simply doesn't have that folder; any other failure fails the lot.
-        let fetchWellKnownIds accessToken : Async<Result<Set<string>, HttpError>> =
+        /// Ids of the explicitly-included folders, beyond the always-scanned
+        /// Inbox. Empty when nothing is configured, which skips the folder
+        /// walk entirely so the common case makes no extra Graph calls.
+        let resolveIncluded accessToken : Async<Result<Set<string>, HttpError>> =
             async {
-                let! results =
-                    excludedWellKnownFolders
-                    |> List.map (fun name -> getBody http accessToken mailHeaders (buildFolderUrl name))
-                    |> Async.Parallel
-                let folded =
-                    results
-                    |> Array.fold
-                        (fun acc r ->
-                            match acc, r with
-                            | Error e, _ -> Error e
-                            | Ok ids, Ok body ->
-                                Ok(match parseFolderId body with Some id -> Set.add id ids | None -> ids)
-                            | Ok ids, Error(Some HttpStatusCode.NotFound, _) -> Ok ids
-                            | Ok _, Error e -> Error e)
-                        (Ok Set.empty)
-                return folded
-            }
-
-        let resolveExcluded accessToken : Async<Result<Set<string>, HttpError>> =
-            async {
-                match excludedCache with
-                | Some(ids, at) when DateTimeOffset.Now - at < folderRefresh -> return Ok ids
-                | _ ->
-                    let! roots = fetchWellKnownIds accessToken
-                    let! tree = fetchFolderTree accessToken
-                    match roots, tree with
-                    | Ok r, Ok folders ->
-                        let ids = EmailRules.excludedFolderIds folders r excludedNames
-                        excludedCache <- Some(ids, DateTimeOffset.Now)
-                        return Ok ids
-                    | Error e, _
-                    | _, Error e -> return Error e
+                if List.isEmpty includedNames then return Ok Set.empty
+                else
+                    match includedCache with
+                    | Some(ids, at) when DateTimeOffset.Now - at < folderRefresh -> return Ok ids
+                    | _ ->
+                        let! tree = fetchFolderTree accessToken
+                        match tree with
+                        | Ok folders ->
+                            let ids = EmailRules.includedFolderIds folders includedNames
+                            includedCache <- Some(ids, DateTimeOffset.Now)
+                            return Ok ids
+                        | Error e -> return Error e
             }
 
         interface IMailSource with
@@ -221,30 +202,46 @@ module GraphClient =
                 async {
                     try
                         let! accessToken = acquireToken ()
-                        // Without a complete exclusion set we'd risk alerting on
-                        // Sent/Junk mail, so fail the poll (the cursor stays put
-                        // and the next poll retries) rather than guess.
-                        let! excluded = resolveExcluded accessToken
-                        match excluded with
+                        // A failed folder resolve means we don't know which
+                        // included folders to scan, so fail the poll (the cursor
+                        // stays put and the next poll retries) rather than guess.
+                        let! included = resolveIncluded accessToken
+                        match included with
                         | Error(_, msg) -> return Error $"resolving mail folders failed: {msg}"
-                        | Ok excludedIds ->
-                            let get url =
-                                getBody http accessToken mailHeaders url
-                                |> asyncMap (parsed parseMessagesPage)
-                            let! result = fetchAllPages get (buildMessagesUrl since)
-                            return
-                                result
-                                |> Result.mapError snd
-                                |> Result.map (fun (pairs, truncated) ->
-                                    { Emails =
-                                        pairs
-                                        |> List.filter (fun (folder, _) -> not (Set.contains folder excludedIds))
-                                        |> List.map snd
-                                      Truncated = truncated
-                                      NewestReceived =
-                                        pairs
-                                        |> List.map (fun (_, e) -> e.Received)
-                                        |> List.fold (fun acc r -> Some(match acc with Some a -> max a r | None -> r)) None })
+                        | Ok includedIds ->
+                            let fetchFolder folderId =
+                                fetchAllPages
+                                    (fun url -> getBody http accessToken mailHeaders url |> asyncMap (parsed parseMessagesPage))
+                                    (buildMessagesUrl folderId since)
+                            let newestOf (emails: Email list) =
+                                emails
+                                |> List.fold (fun acc e -> Some(match acc with Some a -> max a e.Received | None -> e.Received)) None
+                            // Query each folder on its own, sequentially (one
+                            // request in flight keeps us under the mailbox
+                            // concurrency cap). The cursor may only advance to
+                            // the OLDEST truncation point across folders, so a
+                            // folder that paged out can't have its unfetched
+                            // mail stepped over.
+                            let rec loop remaining emails truncated (watermark: DateTimeOffset option) =
+                                async {
+                                    match remaining with
+                                    | [] ->
+                                        return Ok { Emails = emails; Truncated = truncated; NewestReceived = watermark }
+                                    | folderId :: rest ->
+                                        let! page = fetchFolder folderId
+                                        match page with
+                                        | Error(_, msg) -> return Error msg
+                                        | Ok(pairs, pageTruncated) ->
+                                            let these = pairs |> List.map snd
+                                            let watermark' =
+                                                if pageTruncated then
+                                                    match newestOf these with
+                                                    | Some t -> Some(match watermark with Some w -> min w t | None -> t)
+                                                    | None -> watermark
+                                                else watermark
+                                            return! loop rest (emails @ these) (truncated || pageTruncated) watermark'
+                                }
+                            return! loop ("inbox" :: Set.toList includedIds) [] false None
                     with ex ->
                         return Error ex.Message
                 }

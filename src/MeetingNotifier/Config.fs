@@ -42,11 +42,10 @@ module Config =
           /// How far back to look for matching emails when the app starts,
           /// so reminders that arrived just before a restart aren't lost.
           EmailLookbackMinutes: int
-          /// Extra folders (by display name, case-insensitive) whose mail
-          /// never raises a reminder, on top of the built-in Sent Items,
-          /// Deleted Items, Junk Email, Drafts and Outbox. Sub-folders are
-          /// skipped too.
-          EmailExcludedFolders: string[] }
+          /// Extra folders (by display name, case-insensitive) to scan for
+          /// reminders in addition to the Inbox. Empty means Inbox only. A
+          /// sub-folder is only scanned when it's named here in its own right.
+          EmailIncludedFolders: string[] }
 
     let appDataDir =
         let root = Environment.GetFolderPath Environment.SpecialFolder.ApplicationData
@@ -68,7 +67,7 @@ module Config =
           Volume = 70
           EmailRules = [||]
           EmailLookbackMinutes = 60
-          EmailExcludedFolders = [||] }
+          EmailIncludedFolders = [||] }
 
     let private jsonOptions () =
         let opts =
@@ -118,8 +117,8 @@ module Config =
             Volume = volume
             EmailRules = rules
             EmailLookbackMinutes = lookback
-            EmailExcludedFolders =
-                (if isNull cfg.EmailExcludedFolders then [||] else cfg.EmailExcludedFolders)
+            EmailIncludedFolders =
+                (if isNull cfg.EmailIncludedFolders then [||] else cfg.EmailIncludedFolders)
                 |> Array.filter (String.IsNullOrWhiteSpace >> not)
                 |> Array.map (fun f -> f.Trim())
             ClientId = (if isNull cfg.ClientId then "" else cfg.ClientId)

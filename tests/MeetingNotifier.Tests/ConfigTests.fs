@@ -16,7 +16,7 @@ let private baseCfg : Config.AppConfig =
       Volume = 70
       EmailRules = [||]
       EmailLookbackMinutes = 60
-      EmailExcludedFolders = [||] }
+      EmailIncludedFolders = [||] }
 
 [<Fact>]
 let ``sanitize defaults a non-positive final reminder`` () =
@@ -103,11 +103,11 @@ let ``sanitize defaults a missing email lookback`` () =
     (Config.sanitize cfg).EmailLookbackMinutes |> should equal 60
 
 [<Fact>]
-let ``sanitize trims excluded folders and drops blanks`` () =
-    let cfg = { baseCfg with EmailExcludedFolders = [| " Archive "; ""; null; "News" |] }
-    (Config.sanitize cfg).EmailExcludedFolders |> should equal [| "Archive"; "News" |]
+let ``sanitize trims included folders and drops blanks`` () =
+    let cfg = { baseCfg with EmailIncludedFolders = [| " Archive "; ""; null; "News" |] }
+    (Config.sanitize cfg).EmailIncludedFolders |> should equal [| "Archive"; "News" |]
 
 [<Fact>]
-let ``sanitize replaces null excluded folders`` () =
-    let cfg = { baseCfg with EmailExcludedFolders = null }
-    (Config.sanitize cfg).EmailExcludedFolders |> should equal ([||] : string[])
+let ``sanitize replaces null included folders`` () =
+    let cfg = { baseCfg with EmailIncludedFolders = null }
+    (Config.sanitize cfg).EmailIncludedFolders |> should equal ([||] : string[])

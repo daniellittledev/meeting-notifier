@@ -126,9 +126,9 @@ let ``parseMessagesPage tolerates a missing sender and subject`` () =
     e.WebLink |> should equal None
 
 [<Fact>]
-let ``buildMessagesUrl filters by received time and escapes the filter`` () =
-    let url = GraphParsing.buildMessagesUrl (DateTimeOffset(2026, 4, 15, 10, 0, 0, TimeSpan.Zero))
-    url |> should startWith "https://graph.microsoft.com/v1.0/me/messages?$filter="
+let ``buildMessagesUrl scopes to the folder and filters by received time`` () =
+    let url = GraphParsing.buildMessagesUrl "inbox" (DateTimeOffset(2026, 4, 15, 10, 0, 0, TimeSpan.Zero))
+    url |> should startWith "https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?$filter="
     url |> should haveSubstring "receivedDateTime%20ge%202026-04-15T10%3A00%3A00Z"
     url |> should haveSubstring "isDraft%20eq%20false"
     url |> should haveSubstring "$orderby=receivedDateTime asc"
