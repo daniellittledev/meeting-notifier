@@ -411,7 +411,12 @@ module TrayApp =
               StatusText = fun () -> connectionText }
 
         // Open (or focus) the Settings window, replacing the old
-        // open-config.json-in-an-editor behaviour.
+        // open-config.json-in-an-editor behaviour. The window is seeded with
+        // the current config and rebuilt whenever it has been closed, so it
+        // always opens in sync. The tray's own quick toggles (keep-on-top,
+        // sound) stay as a convenience and remain a second writer: a change
+        // made through them while the window is already open is not reflected
+        // in the open window's snapshot. Accepted — the paths rarely overlap.
         let openSettings () =
             let view =
                 match settingsView with
