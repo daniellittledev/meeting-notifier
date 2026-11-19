@@ -75,10 +75,15 @@ let ``sanitize leaves an in-range volume unchanged`` () =
     (Config.sanitize cfg).Volume |> should equal 40
 
 [<Fact>]
-let ``sanitize clamps the email volume into 0-100`` () =
+let ``sanitize clamps the email volume to 100`` () =
     (Config.sanitize { baseCfg with EmailVolume = 150 }).EmailVolume |> should equal 100
-    (Config.sanitize { baseCfg with EmailVolume = -5 }).EmailVolume |> should equal 0
     (Config.sanitize { baseCfg with EmailVolume = 30 }).EmailVolume |> should equal 30
+
+[<Fact>]
+let ``sanitize defaults a missing or non-positive email volume`` () =
+    // A config written before EmailVolume existed loads it as 0.
+    (Config.sanitize { baseCfg with EmailVolume = 0 }).EmailVolume |> should equal 50
+    (Config.sanitize { baseCfg with EmailVolume = -5 }).EmailVolume |> should equal 50
 
 [<Fact>]
 let ``sanitize replaces null strings with empty`` () =
