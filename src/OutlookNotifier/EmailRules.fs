@@ -1,7 +1,7 @@
-namespace MeetingNotifier
+namespace OutlookNotifier
 
 open System
-open MeetingNotifier.Domain
+open OutlookNotifier.Domain
 
 /// Pure email-rule matching and "which emails are new this tick" logic. No
 /// I/O, so the matching rules and the polling cursor can be unit-tested.

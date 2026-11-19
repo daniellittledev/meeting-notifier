@@ -1,11 +1,11 @@
-namespace MeetingNotifier
+namespace OutlookNotifier
 
 open System
 open System.Net
 open System.Net.Http
 open System.Net.Http.Headers
-open MeetingNotifier.Domain
-open MeetingNotifier.GraphParsing
+open OutlookNotifier.Domain
+open OutlookNotifier.GraphParsing
 
 /// Calendar/mail source abstractions + Microsoft Graph implementations.
 /// Wrapping Graph behind `ICalendarSource` / `IMailSource` leaves the door

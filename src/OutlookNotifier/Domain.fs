@@ -1,4 +1,4 @@
-namespace MeetingNotifier
+namespace OutlookNotifier
 
 open System
 

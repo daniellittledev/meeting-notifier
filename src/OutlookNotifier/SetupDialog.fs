@@ -1,4 +1,4 @@
-namespace MeetingNotifier
+namespace OutlookNotifier
 
 open System
 open System.Diagnostics
@@ -18,7 +18,7 @@ module SetupDialog =
     let show (current: Config.AppConfig) : (string * string) option =
         use form =
             new Form(
-                Text = "Meeting Notifier — setup",
+                Text = "Outlook Notifier — setup",
                 FormBorderStyle = FormBorderStyle.FixedDialog,
                 StartPosition = FormStartPosition.CenterScreen,
                 MaximizeBox = false,
@@ -29,7 +29,7 @@ module SetupDialog =
         let intro =
             new Label(
                 Text =
-                    "Meeting Notifier needs an Azure AD app registration to "
+                    "Outlook Notifier needs an Azure AD app registration to "
                     + "read your calendar. Enter the Application (client) ID "
                     + "and Directory (tenant) ID from your app registration.",
                 AutoSize = false,

@@ -37,7 +37,7 @@ See [Email reminders](#email-reminders).
 
 ## First-run setup
 
-The first time you launch Meeting Notifier (or any time `clientId`/`tenantId`
+The first time you launch Outlook Notifier (or any time `clientId`/`tenantId`
 are missing), a small setup dialog asks for the **Application (client) ID**
 and **Directory (tenant) ID** of an Azure AD app registration — no JSON
 editing required. Click **Save** and the app continues straight into
@@ -59,7 +59,7 @@ as `contoso.onmicrosoft.com`.)
 
 ## Configuration
 
-Config lives at `%APPDATA%\MeetingNotifier\config.json`. The first-run dialog
+Config lives at `%APPDATA%\OutlookNotifier\config.json`. The first-run dialog
 writes `clientId` / `tenantId` for you; the remaining settings are edited in
 this file directly:
 
@@ -138,7 +138,7 @@ email alerts once:
   so the window minimises to the taskbar until you tick them off.
   **Dismiss all** clears everything, emails included.
 
-Email reminders survive restarts. `%APPDATA%\MeetingNotifier\email-reminders.json`
+Email reminders survive restarts. `%APPDATA%\OutlookNotifier\email-reminders.json`
 holds the ones still waiting (shown again, silently, on launch), the ones
 you've ticked off (never shown again; forgotten after 30 days) and the
 polling cursor, so mail that arrives while the app is closed is picked up
@@ -159,24 +159,24 @@ calendar-only sign-in, the tray indicator shows **Not connected** with an
 `Email:` reason, and it won't keep prompting. Use **Re-authenticate...** to try again.
 
 Configuration is read once at launch, so **edits only take effect after you
-restart Meeting Notifier**. The Settings menu item reminds you of this when
+restart Outlook Notifier**. The Settings menu item reminds you of this when
 it opens the file.
 
 ## Build and run
 
 ```powershell
-dotnet build MeetingNotifier.sln -c Release
-dotnet run --project src/MeetingNotifier
+dotnet build OutlookNotifier.sln -c Release
+dotnet run --project src/OutlookNotifier
 ```
 
 First launch opens the system browser for delegated OAuth sign-in. The
-MSAL token cache at `%APPDATA%\MeetingNotifier\msal.cache` persists the
+MSAL token cache at `%APPDATA%\OutlookNotifier\msal.cache` persists the
 refresh token (DPAPI-protected), so subsequent launches are silent.
 
 ## Install & auto-update
 
 Released builds are packaged with [Velopack](https://velopack.io/). Grab
-`MeetingNotifier-win-Setup.exe` from the
+`OutlookNotifier-win-Setup.exe` from the
 [Releases](https://github.com/daniellittledev/meeting-notifier/releases) page
 and run it — it's a per-user install (no admin prompt) and registers the
 Start-Menu shortcut needed for toasts.
@@ -213,7 +213,7 @@ forces an immediate poll instead of waiting for the next tick.
 ## Run at startup
 
 Right-click the tray icon → **Run at startup** (toggle). This writes
-`HKCU\Software\Microsoft\Windows\CurrentVersion\Run\MeetingNotifier`
+`HKCU\Software\Microsoft\Windows\CurrentVersion\Run\OutlookNotifier`
 pointing at the current executable.
 
 ## Tests
@@ -221,12 +221,12 @@ pointing at the current executable.
 Pure alert-engine logic is fully unit-tested:
 
 ```powershell
-dotnet test tests/MeetingNotifier.Tests
+dotnet test tests/OutlookNotifier.Tests
 ```
 
 ## Replacing the chime
 
-`src/MeetingNotifier/alert.wav` is a placeholder two-tone chime (and
+`src/OutlookNotifier/alert.wav` is a placeholder two-tone chime (and
 `email.wav` the softer email ding). Replace
 it with anything louder/more distinctive — it's embedded as a resource at
 build time, so just drop in a new `alert.wav` and rebuild.
@@ -257,5 +257,5 @@ implementation without touching AlertEngine or TrayApp.
 
 Unpackaged Win32 apps can't send Windows toast notifications without an
 AUMID registered in a Start-Menu `.lnk`. `AumidRegistration.ensure` writes
-`%AppData%\Microsoft\Windows\Start Menu\Programs\MeetingNotifier.lnk` on
+`%AppData%\Microsoft\Windows\Start Menu\Programs\OutlookNotifier.lnk` on
 first run. Delete it and the shortcut will be rewritten on the next launch.

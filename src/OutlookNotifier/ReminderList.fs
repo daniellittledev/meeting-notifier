@@ -1,7 +1,7 @@
-namespace MeetingNotifier
+namespace OutlookNotifier
 
 open System
-open MeetingNotifier.Domain
+open OutlookNotifier.Domain
 
 /// Pure, immutable model of the reminders currently shown in the window.
 /// No UI/framework references so it can be unit-tested on the plain

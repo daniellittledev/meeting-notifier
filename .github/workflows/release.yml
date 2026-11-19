@@ -29,7 +29,7 @@ jobs:
 
       - name: Publish (self-contained win-x64)
         run: >
-          dotnet publish src/MeetingNotifier/MeetingNotifier.fsproj
+          dotnet publish src/OutlookNotifier/OutlookNotifier.fsproj
           -c Release -r win-x64 --self-contained true
           -p:Version=${{ steps.version.outputs.version }}
           -o publish
@@ -46,18 +46,18 @@ jobs:
       - name: Pack
         run: >
           vpk pack
-          -u MeetingNotifier
+          -u OutlookNotifier
           -v ${{ steps.version.outputs.version }}
           -p publish
-          -e MeetingNotifier.exe
-          -i src/MeetingNotifier/appicon.ico
-          --packTitle "Meeting Notifier"
+          -e OutlookNotifier.exe
+          -i src/OutlookNotifier/appicon.ico
+          --packTitle "Outlook Notifier"
 
       - name: Upload to GitHub Releases
         run: >
           vpk upload github
           --repoUrl https://github.com/${{ github.repository }}
           --publish
-          --releaseName "Meeting Notifier ${{ steps.version.outputs.version }}"
+          --releaseName "Outlook Notifier ${{ steps.version.outputs.version }}"
           --tag ${{ github.ref_name }}
           --token ${{ secrets.GITHUB_TOKEN }}

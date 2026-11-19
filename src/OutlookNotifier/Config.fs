@@ -1,4 +1,4 @@
-namespace MeetingNotifier
+namespace OutlookNotifier
 
 open System
 open System.IO
@@ -7,7 +7,7 @@ open System.Text.Json.Serialization
 open System.Text.Json.Serialization.Custom
 
 /// Loads and persists the on-disk JSON configuration at
-/// `%APPDATA%\MeetingNotifier\config.json`.
+/// `%APPDATA%\OutlookNotifier\config.json`.
 module Config =
 
     /// A rule that turns a matching incoming email into a check-off reminder.
@@ -45,15 +45,32 @@ module Config =
           /// Extra folders (by display name, case-insensitive) to scan for
           /// reminders in addition to the Inbox. Empty means Inbox only. A
           /// sub-folder is only scanned when it's named here in its own right.
-          EmailIncludedFolders: string[] }
+          EmailIncludedFolders: string[]
+          /// When true, a single left-click on the tray icon opens the
+          /// Settings window; otherwise it just shows the context menu.
+          TrayClickOpensSettings: bool
+          /// Email reminders are silent to-dos by default. When true they get
+          /// their own soft chime, independent of the meeting-reminder sound.
+          EmailSoundEnabled: bool
+          /// Volume (0-100) for the email reminder chime, kept separate from
+          /// the meeting-reminder `Volume`.
+          EmailVolume: int }
 
     let appDataDir =
         let root = Environment.GetFolderPath Environment.SpecialFolder.ApplicationData
-        Path.Combine(root, "MeetingNotifier")
+        Path.Combine(root, "OutlookNotifier")
 
     let configPath = Path.Combine(appDataDir, "config.json")
 
     let msalCachePath = Path.Combine(appDataDir, "msal.cache")
+
+    /// The app was previously called "Meeting Notifier" and stored its state
+    /// under %APPDATA%\MeetingNotifier. On the first run after the rename,
+    /// carry the existing config and cached sign-in across so users keep their
+    /// settings and don't have to re-authenticate.
+    let private legacyAppDataDir =
+        let root = Environment.GetFolderPath Environment.SpecialFolder.ApplicationData
+        Path.Combine(root, "MeetingNotifier")
 
     let private defaults : AppConfig =
         { ClientId = ""
@@ -67,7 +84,10 @@ module Config =
           Volume = 70
           EmailRules = [||]
           EmailLookbackMinutes = 60
-          EmailIncludedFolders = [||] }
+          EmailIncludedFolders = [||]
+          TrayClickOpensSettings = true
+          EmailSoundEnabled = false
+          EmailVolume = 50 }
 
     let private jsonOptions () =
         let opts =
@@ -82,6 +102,19 @@ module Config =
     let private ensureDir () =
         if not (Directory.Exists appDataDir) then
             Directory.CreateDirectory appDataDir |> ignore
+
+    /// Copy config and MSAL cache from the pre-rename folder when the new one
+    /// has no config yet. Best-effort: a failure just means a fresh first run.
+    let private migrateLegacy () =
+        try
+            let legacyConfig = Path.Combine(legacyAppDataDir, "config.json")
+            if not (File.Exists configPath) && File.Exists legacyConfig then
+                ensureDir ()
+                File.Copy(legacyConfig, configPath, false)
+                let legacyCache = Path.Combine(legacyAppDataDir, "msal.cache")
+                if File.Exists legacyCache && not (File.Exists msalCachePath) then
+                    File.Copy(legacyCache, msalCachePath, false)
+        with _ -> ()
 
     /// Pure normalisation of a freshly-deserialised config: replace nulls,
     /// default a non-positive final-reminder window, and clamp the poll
@@ -115,6 +148,7 @@ module Config =
             FinalReminderMinutes = finalMinutes
             PollIntervalSeconds = poll
             Volume = volume
+            EmailVolume = max 0 (min 100 cfg.EmailVolume)
             EmailRules = rules
             EmailLookbackMinutes = lookback
             EmailIncludedFolders =
@@ -136,6 +170,7 @@ module Config =
     /// the first-run experience just works.
     let loadOrDefault () : AppConfig =
         ensureDir ()
+        migrateLegacy ()
         if not (File.Exists configPath) then
             save defaults
             defaults

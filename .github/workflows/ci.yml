@@ -19,10 +19,10 @@ jobs:
           dotnet-version: '8.0.x'
 
       - name: Restore dependencies
-        run: dotnet restore MeetingNotifier.sln
+        run: dotnet restore OutlookNotifier.sln
 
       - name: Build
-        run: dotnet build MeetingNotifier.sln -c Release --no-restore
+        run: dotnet build OutlookNotifier.sln -c Release --no-restore
 
       - name: Test
-        run: dotnet test tests/MeetingNotifier.Tests/MeetingNotifier.Tests.fsproj -c Release --no-build --verbosity normal
+        run: dotnet test tests/OutlookNotifier.Tests/OutlookNotifier.Tests.fsproj -c Release --no-build --verbosity normal

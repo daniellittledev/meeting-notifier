@@ -1,8 +1,8 @@
-module MeetingNotifier.Tests.ConfigTests
+module OutlookNotifier.Tests.ConfigTests
 
 open Xunit
 open FsUnit.Xunit
-open MeetingNotifier
+open OutlookNotifier
 
 let private baseCfg : Config.AppConfig =
     { ClientId = "cid"
@@ -16,7 +16,10 @@ let private baseCfg : Config.AppConfig =
       Volume = 70
       EmailRules = [||]
       EmailLookbackMinutes = 60
-      EmailIncludedFolders = [||] }
+      EmailIncludedFolders = [||]
+      TrayClickOpensSettings = true
+      EmailSoundEnabled = false
+      EmailVolume = 50 }
 
 [<Fact>]
 let ``sanitize defaults a non-positive final reminder`` () =
@@ -70,6 +73,12 @@ let ``sanitize clamps a negative volume up to 0`` () =
 let ``sanitize leaves an in-range volume unchanged`` () =
     let cfg = { baseCfg with Volume = 40 }
     (Config.sanitize cfg).Volume |> should equal 40
+
+[<Fact>]
+let ``sanitize clamps the email volume into 0-100`` () =
+    (Config.sanitize { baseCfg with EmailVolume = 150 }).EmailVolume |> should equal 100
+    (Config.sanitize { baseCfg with EmailVolume = -5 }).EmailVolume |> should equal 0
+    (Config.sanitize { baseCfg with EmailVolume = 30 }).EmailVolume |> should equal 30
 
 [<Fact>]
 let ``sanitize replaces null strings with empty`` () =

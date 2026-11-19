@@ -1,11 +1,11 @@
-namespace MeetingNotifier
+namespace OutlookNotifier
 
 open System
 open System.Globalization
 open System.Text.Json
 open System.Text.Json.Serialization
 open System.Text.Json.Serialization.Custom
-open MeetingNotifier.Domain
+open OutlookNotifier.Domain
 
 /// Pure parsing of the Microsoft Graph /me/calendarView payload into domain
 /// `Meeting` values. Deliberately free of any HTTP/auth dependency so the
