@@ -99,7 +99,8 @@ module SettingsWindow =
     // The toggle-switch look: a ToggleButton re-templated as a 40x20 track with
     // a sliding thumb. Colours come from DynamicResource keys set on the window.
     let private toggleTemplateXaml =
-        """<ControlTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" TargetType="ToggleButton">
+        """<ControlTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                            xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" TargetType="ToggleButton">
              <Border x:Name="track" Width="40" Height="20" CornerRadius="10" Background="Transparent"
                      BorderThickness="1" BorderBrush="{DynamicResource ToggleBorder}" SnapsToDevicePixels="True">
                <Ellipse x:Name="thumb" Width="12" Height="12" HorizontalAlignment="Left" VerticalAlignment="Center"
