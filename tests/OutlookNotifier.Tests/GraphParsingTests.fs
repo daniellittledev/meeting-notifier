@@ -1,10 +1,10 @@
-module MeetingNotifier.Tests.GraphParsingTests
+module OutlookNotifier.Tests.GraphParsingTests
 
 open System
 open Xunit
 open FsUnit.Xunit
-open MeetingNotifier
-open MeetingNotifier.Domain
+open OutlookNotifier
+open OutlookNotifier.Domain
 
 [<Fact>]
 let ``parseGraphDateTime reads a UTC value as a zero-offset DateTimeOffset`` () =

@@ -1,4 +1,4 @@
-namespace MeetingNotifier
+namespace OutlookNotifier
 
 open System
 open System.IO
@@ -12,7 +12,7 @@ open System.Windows.Interop
 open System.Windows.Input
 open System.Windows.Threading
 open Microsoft.Win32
-open MeetingNotifier.Domain
+open OutlookNotifier.Domain
 
 /// Light/dark palette picked from the Windows personalization setting.
 module private ReminderTheme =

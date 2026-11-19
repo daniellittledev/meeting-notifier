@@ -13,19 +13,19 @@
     tested without bringing in the Windows-only TFM of the app.
   -->
   <ItemGroup>
-    <Compile Include="..\..\src\MeetingNotifier\Domain.fs"
+    <Compile Include="..\..\src\OutlookNotifier\Domain.fs"
              Link="_src\Domain.fs" />
-    <Compile Include="..\..\src\MeetingNotifier\Config.fs"
+    <Compile Include="..\..\src\OutlookNotifier\Config.fs"
              Link="_src\Config.fs" />
-    <Compile Include="..\..\src\MeetingNotifier\EmailRules.fs"
+    <Compile Include="..\..\src\OutlookNotifier\EmailRules.fs"
              Link="_src\EmailRules.fs" />
-    <Compile Include="..\..\src\MeetingNotifier\EmailStore.fs"
+    <Compile Include="..\..\src\OutlookNotifier\EmailStore.fs"
              Link="_src\EmailStore.fs" />
-    <Compile Include="..\..\src\MeetingNotifier\GraphParsing.fs"
+    <Compile Include="..\..\src\OutlookNotifier\GraphParsing.fs"
              Link="_src\GraphParsing.fs" />
-    <Compile Include="..\..\src\MeetingNotifier\AlertEngine.fs"
+    <Compile Include="..\..\src\OutlookNotifier\AlertEngine.fs"
              Link="_src\AlertEngine.fs" />
-    <Compile Include="..\..\src\MeetingNotifier\ReminderList.fs"
+    <Compile Include="..\..\src\OutlookNotifier\ReminderList.fs"
              Link="_src\ReminderList.fs" />
     <Compile Include="AlertEngineTests.fs" />
     <Compile Include="ConfigTests.fs" />

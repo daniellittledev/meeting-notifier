@@ -1,4 +1,4 @@
-namespace MeetingNotifier
+namespace OutlookNotifier
 
 open System
 open System.Diagnostics
@@ -9,7 +9,7 @@ open System.Reflection
 open System.Threading
 open System.Threading.Tasks
 open System.Windows.Forms
-open MeetingNotifier.Domain
+open OutlookNotifier.Domain
 
 /// Tray lifecycle: builds the NotifyIcon + context menu, owns the polling
 /// loop, threads AlertEngine state immutably, and dispatches fireAlert
@@ -72,6 +72,9 @@ module TrayApp =
         let mutable preparedUpdate
             : (Velopack.UpdateManager * Velopack.UpdateInfo) option = None
         let mutable reminderWindow : ReminderWindow option = None
+        let mutable settingsView : SettingsWindow.SettingsView option = None
+        // Latest connection line, surfaced on the Settings Account page.
+        let mutable connectionText = "Connecting..."
         let stateLock = obj()
         let cts = new CancellationTokenSource()
         let notifyIcon = new NotifyIcon()
@@ -86,6 +89,7 @@ module TrayApp =
         let keepOnTopItem = new ToolStripMenuItem("Keep reminders on top")
         let soundItem = new ToolStripMenuItem("Play sound")
         let soundFinalOnlyItem = new ToolStripMenuItem("Only chime on final reminder")
+        let checkNowItem = new ToolStripMenuItem("Check now")
         let settingsItem = new ToolStripMenuItem("Settings")
         let reauthItem = new ToolStripMenuItem("Re-authenticate...")
         let updateItem = new ToolStripMenuItem("Check for updates...")
@@ -106,7 +110,8 @@ module TrayApp =
             statusItem.Text <- text
             statusItem.Image <- dot
             statusItem.ToolTipText <- tip
-            notifyIcon.Text <- sprintf "Meeting Notifier — %s" text
+            notifyIcon.Text <- sprintf "Outlook Notifier — %s" text
+            connectionText <- text
 
         /// Apply a change to the email store (pruning old checked-off ids) and
         /// write it to disk when it differs meaningfully from what's saved.
@@ -199,27 +204,6 @@ module TrayApp =
             cfg <- { cfg with SoundOnFinalOnly = v }
             try Config.save cfg with _ -> ()
 
-        let openSettings () =
-            try
-                // Ensure the file exists before asking the shell to open it.
-                if not (File.Exists Config.configPath) then
-                    Config.save cfg
-                // Config is read once at launch, so changes only take effect
-                // on restart. Say so up front rather than leaving the user to
-                // wonder why their edit did nothing.
-                MessageBox.Show(
-                    "Edit and save config.json, then restart Meeting Notifier "
-                    + "for the changes to take effect.",
-                    "Meeting Notifier — settings",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Information)
-                |> ignore
-                Process.Start(
-                    ProcessStartInfo(Config.configPath, UseShellExecute = true))
-                |> ignore
-            with ex ->
-                MessageBox.Show(sprintf "Could not open config: %s" ex.Message)
-                |> ignore
 
         // Mark the menu so the user can apply an update we've already
         // fetched in the background; the next click applies and restarts.
@@ -253,7 +237,7 @@ module TrayApp =
                                 MessageBox.Show(
                                     "An update was downloaded. Restart now to "
                                     + "apply it?",
-                                    "Meeting Notifier — update",
+                                    "Outlook Notifier — update",
                                     MessageBoxButtons.YesNo,
                                     MessageBoxIcon.Information)
                             if restart = DialogResult.Yes then applyPreparedUpdate ()
@@ -262,7 +246,7 @@ module TrayApp =
                             updateItem.Text <- "Check for updates..."
                             MessageBox.Show(
                                 "You're running the latest version.",
-                                "Meeting Notifier — update",
+                                "Outlook Notifier — update",
                                 MessageBoxButtons.OK,
                                 MessageBoxIcon.Information)
                             |> ignore)
@@ -359,9 +343,6 @@ module TrayApp =
 
         let rec pollLoop () =
             async {
-                let period =
-                    TimeSpan.FromSeconds(float cfg.PollIntervalSeconds)
-                use timer = new PeriodicTimer(period)
                 // Run once immediately so the user doesn't wait a full
                 // tick after opening the app.
                 try
@@ -370,30 +351,88 @@ module TrayApp =
                 let mutable keepGoing = true
                 while keepGoing && not cts.IsCancellationRequested do
                     try
-                        let! next =
-                            timer.WaitForNextTickAsync(cts.Token).AsTask()
-                            |> Async.AwaitTask
-                        if next then
-                            try do! runTick ()
-                            with ex -> eprintfn "tick failed: %s" ex.Message
-                        else
-                            keepGoing <- false
+                        // Re-read the interval each cycle so a change made in
+                        // Settings takes effect on the next tick, no restart.
+                        let period =
+                            TimeSpan.FromSeconds(float cfg.PollIntervalSeconds)
+                        do! Task.Delay(period, cts.Token) |> Async.AwaitTask
+                        try do! runTick ()
+                        with ex -> eprintfn "tick failed: %s" ex.Message
                     with
                     | :? OperationCanceledException -> keepGoing <- false
                     | ex ->
                         eprintfn "poll loop error: %s" ex.Message
             }
 
+        // Live-apply a config changed in the Settings window: adopt it as the
+        // current config, persist it, push it into the reminders window, and
+        // keep the tray menu checkmarks in sync.
+        let applyChangedConfig (newCfg: Config.AppConfig) =
+            cfg <- newCfg
+            try Config.save cfg with _ -> ()
+            reminderWindow |> Option.iter (fun w -> w.SetKeepOnTop cfg.KeepOnTop)
+            keepOnTopItem.Checked <- cfg.KeepOnTop
+            soundItem.Checked <- cfg.SoundEnabled
+            soundFinalOnlyItem.Checked <- cfg.SoundOnFinalOnly
+            soundFinalOnlyItem.Enabled <- cfg.SoundEnabled
+
+        // Force an immediate poll instead of waiting for the next scheduled tick.
+        let triggerCheckNow () =
+            setConnection Connecting
+            Async.Start(async {
+                try do! runTick ()
+                with ex -> eprintfn "manual refresh failed: %s" ex.Message
+            }, cts.Token)
+
+        // Sign out and immediately sign back in (new IDs / renewed consent),
+        // letting the mail source prompt for Mail.Read again.
+        let reconnect () =
+            Async.StartImmediate(async {
+                try
+                    do! tokenProvider.SignOut()
+                    let! _ = tokenProvider.GetAccessToken()
+                    mailSource |> Option.iter (fun m -> m.ResetSignIn())
+                    return ()
+                with ex -> eprintfn "reconnect failed: %s" ex.Message
+            })
+
+        let signOut () =
+            Async.StartImmediate(async {
+                try do! tokenProvider.SignOut()
+                with ex -> eprintfn "sign out failed: %s" ex.Message
+            })
+
+        let settingsCallbacks : SettingsWindow.Callbacks =
+            { OnChanged = applyChangedConfig
+              OnCheckNow = triggerCheckNow
+              OnReconnect = reconnect
+              OnSignOut = signOut
+              DeviceNames = Notifications.Audio.deviceNames
+              StatusText = fun () -> connectionText }
+
+        // Open (or focus) the Settings window, replacing the old
+        // open-config.json-in-an-editor behaviour. The window is seeded with
+        // the current config and rebuilt whenever it has been closed, so it
+        // always opens in sync. The tray's own quick toggles (keep-on-top,
+        // sound) stay as a convenience and remain a second writer: a change
+        // made through them while the window is already open is not reflected
+        // in the open window's snapshot. Accepted — the paths rarely overlap.
+        let openSettings () =
+            let view =
+                match settingsView with
+                | Some v when v.IsOpen -> v
+                | _ ->
+                    let v = SettingsWindow.SettingsView(cfg, settingsCallbacks)
+                    settingsView <- Some v
+                    v
+            view.Show()
+
         // ----- Construction -----
         do
             // The indicator doubles as a manual refresh: clicking it forces an
             // immediate poll instead of waiting for the next scheduled tick.
-            statusItem.Click.Add(fun _ ->
-                setConnection Connecting
-                Async.Start(async {
-                    try do! runTick ()
-                    with ex -> eprintfn "manual refresh failed: %s" ex.Message
-                }, cts.Token))
+            statusItem.Click.Add(fun _ -> triggerCheckNow ())
+            checkNowItem.Click.Add(fun _ -> triggerCheckNow ())
 
             upcomingItem.DropDownOpening.Add(fun _ -> refreshUpcomingMenu ())
 
@@ -424,17 +463,7 @@ module TrayApp =
 
             settingsItem.Click.Add(fun _ -> openSettings ())
 
-            reauthItem.Click.Add(fun _ ->
-                Async.StartImmediate(async {
-                    try
-                        do! tokenProvider.SignOut()
-                        let! _ = tokenProvider.GetAccessToken()
-                        // Let the mail source prompt for Mail.Read again.
-                        mailSource |> Option.iter (fun m -> m.ResetSignIn())
-                        return ()
-                    with ex ->
-                        eprintfn "re-auth failed: %s" ex.Message
-                }))
+            reauthItem.Click.Add(fun _ -> reconnect ())
 
             updateItem.Click.Add(fun _ ->
                 match preparedUpdate with
@@ -448,6 +477,7 @@ module TrayApp =
 
             menu.Items.Add(statusItem :> ToolStripItem) |> ignore
             menu.Items.Add(new ToolStripSeparator() :> ToolStripItem) |> ignore
+            menu.Items.Add(checkNowItem :> ToolStripItem) |> ignore
             menu.Items.Add(upcomingItem :> ToolStripItem) |> ignore
             menu.Items.Add(new ToolStripSeparator() :> ToolStripItem) |> ignore
             menu.Items.Add(startupItem :> ToolStripItem) |> ignore
@@ -463,6 +493,11 @@ module TrayApp =
             notifyIcon.Icon <- trayIcon
             notifyIcon.Visible <- true
             notifyIcon.ContextMenuStrip <- menu
+            // A single left-click opens Settings (when enabled); right-click
+            // still shows the context menu.
+            notifyIcon.MouseClick.Add(fun e ->
+                if e.Button = MouseButtons.Left && cfg.TrayClickOpensSettings then
+                    openSettings ())
             refreshStartupCheckmark ()
             // Seed the indicator (glyph + tray tooltip) until the first tick
             // resolves it to Connected / Not connected.

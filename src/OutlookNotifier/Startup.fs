@@ -1,4 +1,4 @@
-namespace MeetingNotifier
+namespace OutlookNotifier
 
 open System
 open System.Diagnostics
@@ -13,7 +13,7 @@ module Startup =
     let private runKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run"
 
     [<Literal>]
-    let private valueName = "MeetingNotifier"
+    let private valueName = "OutlookNotifier"
 
     let private exePath () =
         let proc = Process.GetCurrentProcess()

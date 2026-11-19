@@ -1,10 +1,10 @@
-module MeetingNotifier.Tests.ReminderListTests
+module OutlookNotifier.Tests.ReminderListTests
 
 open System
 open Xunit
 open FsUnit.Xunit
-open MeetingNotifier
-open MeetingNotifier.Domain
+open OutlookNotifier
+open OutlookNotifier.Domain
 
 let private now = DateTimeOffset(2026, 4, 15, 10, 0, 0, TimeSpan.Zero)
 

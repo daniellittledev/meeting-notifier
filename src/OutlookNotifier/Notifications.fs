@@ -1,11 +1,11 @@
-namespace MeetingNotifier
+namespace OutlookNotifier
 
 open System
 open System.IO
 open System.Reflection
 open NAudio.CoreAudioApi
 open NAudio.Wave
-open MeetingNotifier.Domain
+open OutlookNotifier.Domain
 
 /// The "look at me!" surfaces: an audio chime routed to a non-headphone
 /// render device, plus the aggregating WPF reminders window (which owns
@@ -50,6 +50,17 @@ module Notifications =
                         with _ -> None
             with _ -> None
 
+        /// Friendly names of the active render devices, for the Settings
+        /// output-device picker.
+        let deviceNames () : string list =
+            try
+                use enum' = new MMDeviceEnumerator()
+                enum'.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active)
+                |> Seq.cast<MMDevice>
+                |> Seq.map (fun d -> d.FriendlyName)
+                |> Seq.toList
+            with _ -> []
+
         /// Extract an embedded `.wav` from resources into a temp file so
         /// NAudio's reader can stream from disk. The temp file name is
         /// stamped with the assembly version so a new build (potentially
@@ -70,7 +81,7 @@ module Notifications =
                 let tempPath =
                     Path.Combine(
                         Path.GetTempPath(),
-                        sprintf "meeting-notifier-%s-%s.wav"
+                        sprintf "outlook-notifier-%s-%s.wav"
                             (Path.GetFileNameWithoutExtension fileName) version)
                 if not (File.Exists tempPath) then
                     use rs = asm.GetManifestResourceStream name
@@ -78,9 +89,9 @@ module Notifications =
                     rs.CopyTo fs
                 Some tempPath
 
-        /// Fire-and-forget playback of an embedded wav at the configured
-        /// volume (0-100).
-        let private playResource (fileName: string) (cfg: Config.AppConfig) =
+        /// Fire-and-forget playback of an embedded wav at the given volume
+        /// (0-100) through the configured device.
+        let private playResource (fileName: string) (volume: int) (cfg: Config.AppConfig) =
             System.Threading.Tasks.Task.Run(fun () ->
                 try
                     match embeddedWavPath fileName with
@@ -90,7 +101,7 @@ module Notifications =
                         | None -> ()
                         | Some device ->
                             use reader = new AudioFileReader(wav)
-                            let v = float32 (max 0 (min 100 cfg.Volume)) / 100.0f
+                            let v = float32 (max 0 (min 100 volume)) / 100.0f
                             reader.Volume <- v
                             use out =
                                 new WasapiOut(device, AudioClientShareMode.Shared,
@@ -102,11 +113,12 @@ module Notifications =
                             waiter.Wait(TimeSpan.FromSeconds 10.0) |> ignore
                 with _ -> ()) |> ignore
 
-        /// The big two-tone meeting chime.
-        let play (cfg: Config.AppConfig) = playResource "alert.wav" cfg
+        /// The big two-tone meeting chime, at the meeting `Volume`.
+        let play (cfg: Config.AppConfig) = playResource "alert.wav" cfg.Volume cfg
 
-        /// The small, soft ding for email reminders.
-        let playSoft (cfg: Config.AppConfig) = playResource "email.wav" cfg
+        /// The small, soft ding for email reminders, at the separate
+        /// `EmailVolume`.
+        let playSoft (cfg: Config.AppConfig) = playResource "email.wav" cfg.EmailVolume cfg
 
     // ============ Unified fire function ============
 
@@ -131,8 +143,9 @@ module Notifications =
         if shouldChime cfg pa then Audio.play cfg
         window.AddReminder(pa, onAction)
 
-    /// Surface an email reminder: a soft ding (when sound is on and `chime`
-    /// is set, so a batch dings once) and a row in the reminders window.
+    /// Surface an email reminder: a soft ding (when the email sound is enabled
+    /// and `chime` is set, so a batch dings once) and a row in the reminders
+    /// window. Email sound is independent of the meeting-reminder sound.
     /// Must be called on the UI thread.
     let fireEmailAlert
         (cfg: Config.AppConfig)
@@ -140,5 +153,5 @@ module Notifications =
         (chime: bool)
         (ea: EmailAlert)
         =
-        if chime && cfg.SoundEnabled then Audio.playSoft cfg
+        if chime && cfg.EmailSoundEnabled then Audio.playSoft cfg
         window.AddEmail ea

@@ -1,13 +1,13 @@
-namespace MeetingNotifier
+namespace OutlookNotifier
 
 open System
 open System.IO
 open System.Text.Json
 open System.Text.Json.Serialization
-open MeetingNotifier.Domain
+open OutlookNotifier.Domain
 
 /// Email reminders persisted across restarts at
-/// `%APPDATA%\MeetingNotifier\email-reminders.json`: the reminders still
+/// `%APPDATA%\OutlookNotifier\email-reminders.json`: the reminders still
 /// waiting to be checked off, the ones already ticked off (so a re-fetch
 /// never re-alerts them) and the polling cursor (so mail that arrives
 /// while the app is closed is caught up on next launch).

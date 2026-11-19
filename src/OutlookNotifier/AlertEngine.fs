@@ -1,7 +1,7 @@
-namespace MeetingNotifier
+namespace OutlookNotifier
 
 open System
-open MeetingNotifier.Domain
+open OutlookNotifier.Domain
 
 /// Pure alert logic. No I/O — given a snapshot of meetings, the current
 /// time, and the set of previously fired alerts, decide which alerts need
