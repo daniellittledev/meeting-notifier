@@ -122,9 +122,12 @@ module GraphClient =
         // poll.
         let mutable interactiveTried = false
 
-        // Immutable ids survive a message being moved between folders, so
-        // moving a reminder email won't re-alert it.
-        let mailHeaders = [ "Prefer", "IdType=\"ImmutableId\"" ]
+        // No `Prefer: IdType="ImmutableId"`: that header makes Graph return a
+        // webLink OWA can't open ("this message might have been moved or
+        // deleted"), breaking the reminder's Open button. De-duplication across
+        // folder moves instead rides on each message's RFC Message-ID (see
+        // GraphParsing.messageToDomain), which needs no special header.
+        let mailHeaders = []
 
         let acquireToken () =
             async {

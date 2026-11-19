@@ -137,6 +137,7 @@ module GraphParsing =
           toRecipients: GraphRecipient[]
           ccRecipients: GraphRecipient[]
           receivedDateTime: string
+          internetMessageId: string
           webLink: string
           parentFolderId: string }
 
@@ -170,7 +171,14 @@ module GraphParsing =
             if isNull (box m.from) || isNull (box m.from.emailAddress) then None
             else Some m.from.emailAddress
         let orEmpty (s: string) = if isNull s then "" else s
-        { Id = EmailId m.id
+        // The RFC 5322 Message-ID is immutable: it stays the same when the
+        // message is moved between folders, so it de-duplicates reminders
+        // without the Graph store id, whose immutable-id variant breaks the
+        // webLink. Fall back to the store id on the rare message that lacks one.
+        let stableId =
+            if String.IsNullOrWhiteSpace m.internetMessageId then m.id
+            else m.internetMessageId
+        { Id = EmailId stableId
           Subject = (if String.IsNullOrWhiteSpace m.subject then "(no subject)" else m.subject)
           FromName = addr |> Option.map (fun a -> orEmpty a.name) |> Option.defaultValue ""
           FromAddress = addr |> Option.map (fun a -> orEmpty a.address) |> Option.defaultValue ""
@@ -209,7 +217,7 @@ module GraphParsing =
         let filter = Uri.EscapeDataString $"receivedDateTime ge {ts} and isDraft eq false"
         $"https://graph.microsoft.com/v1.0/me/mailFolders/{Uri.EscapeDataString folderId}/messages"
         + $"?$filter={filter}"
-        + "&$select=id,subject,from,toRecipients,ccRecipients,receivedDateTime,webLink,parentFolderId"
+        + "&$select=id,subject,from,toRecipients,ccRecipients,receivedDateTime,internetMessageId,webLink,parentFolderId"
         + "&$orderby=receivedDateTime asc"
         + "&$top=50"
 
