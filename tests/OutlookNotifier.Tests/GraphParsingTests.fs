@@ -104,6 +104,7 @@ let ``parseMessagesPage maps sender, received time, link and folder`` () =
                 "toRecipients": [ { "emailAddress": { "name": "org/repo", "address": "repo@noreply.github.com" } } ],
                 "ccRecipients": [ { "emailAddress": { "name": "Approval requested", "address": "approval_requested@noreply.github.com" } } ],
                 "receivedDateTime": "2026-04-15T10:05:00Z",
+                "internetMessageId": "<msg-abc@github.com>",
                 "webLink": "https://outlook.office365.com/owa/?ItemID=AAMk1",
                 "parentFolderId": "inbox-id" } ],
             "@odata.nextLink": "https://graph.microsoft.com/next" }"""
@@ -111,7 +112,10 @@ let ``parseMessagesPage maps sender, received time, link and folder`` () =
     next |> should equal (Some "https://graph.microsoft.com/next")
     let folder, e = emails.Head
     folder |> should equal "inbox-id"
-    e.Id |> should equal (EmailId "AAMk1")
+    // Identity is the RFC Message-ID, stable across folder moves, not the
+    // Graph store id (which changes on move and whose webLink is requested
+    // without the immutable-id header so the Open link actually works).
+    e.Id |> should equal (EmailId "<msg-abc@github.com>")
     e.FromName |> should equal "GitHub"
     e.FromAddress |> should equal "notifications@github.com"
     e.Recipients
@@ -133,11 +137,20 @@ let ``parseMessagesPage tolerates a missing sender and subject`` () =
     e.WebLink |> should equal None
 
 [<Fact>]
+let ``parseMessagesPage falls back to the Graph id when internetMessageId is absent`` () =
+    let body =
+        """{ "value": [ { "id": "AAMk2", "receivedDateTime": "2026-04-15T10:05:00Z" } ] }"""
+    let emails, _ = GraphParsing.parseMessagesPage body
+    let _, e = emails.Head
+    e.Id |> should equal (EmailId "AAMk2")
+
+[<Fact>]
 let ``buildMessagesUrl scopes to the folder and filters by received time`` () =
     let url = GraphParsing.buildMessagesUrl "inbox" (DateTimeOffset(2026, 4, 15, 10, 0, 0, TimeSpan.Zero))
     url |> should startWith "https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?$filter="
     url |> should haveSubstring "receivedDateTime%20ge%202026-04-15T10%3A00%3A00Z"
     url |> should haveSubstring "isDraft%20eq%20false"
+    url |> should haveSubstring "internetMessageId"
     url |> should haveSubstring "$orderby=receivedDateTime asc"
 
 [<Fact>]
