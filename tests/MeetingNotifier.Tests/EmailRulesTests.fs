@@ -9,15 +9,26 @@ open MeetingNotifier.Domain
 let private now = DateTimeOffset(2026, 4, 15, 10, 0, 0, TimeSpan.Zero)
 
 let private rule name from subject : Config.EmailRule =
-    { Name = name; From = from; SubjectContains = subject }
+    { Name = name; From = from; RecipientContains = ""; SubjectContains = subject }
+
+let private recipientRule recipient : Config.EmailRule =
+    { Name = ""; From = ""; RecipientContains = recipient; SubjectContains = "" }
 
 let private email id fromName fromAddress subject (received: DateTimeOffset) =
     { Id = EmailId id
       Subject = subject
       FromName = fromName
       FromAddress = fromAddress
+      Recipients = []
       Received = received
       WebLink = None }
+
+// A GitHub Actions deployment-approval email: the reason address that marks it
+// as "your approval is requested" rides in Cc, not From.
+let private deployApproval =
+    { email "e1" "GitHub" "notifications@github.com" "Deployment review in org/repo" now with
+        Recipients = [ "org/repo"; "repo@noreply.github.com"
+                       "Approval requested"; "approval_requested@noreply.github.com" ] }
 
 let private pr =
     email "e1" "GitHub" "notifications@github.com" "[org/repo] Review requested on #42" now
@@ -54,9 +65,35 @@ let ``criteria are trimmed before matching`` () =
     EmailRules.matches (rule "" "  github.com " "") pr |> should be True
 
 [<Fact>]
+let ``recipientContains makes a rule active`` () =
+    EmailRules.isActive (recipientRule "approval_requested@noreply.github.com") |> should be True
+
+[<Fact>]
+let ``recipientContains matches a cc address partially and case-insensitively`` () =
+    EmailRules.matches (recipientRule "APPROVAL_REQUESTED@noreply") deployApproval |> should be True
+
+[<Fact>]
+let ``recipientContains also matches a recipient display name`` () =
+    EmailRules.matches (recipientRule "approval requested") deployApproval |> should be True
+
+[<Fact>]
+let ``recipientContains does not match when no recipient contains it`` () =
+    // `pr` has no recipients, and its From is notifications@github.com.
+    EmailRules.matches (recipientRule "approval_requested") pr |> should be False
+
+[<Fact>]
+let ``recipient and subject together both must match`` () =
+    let r subject : Config.EmailRule =
+        { Name = ""; From = ""; RecipientContains = "approval_requested"; SubjectContains = subject }
+    EmailRules.matches (r "deployment review") deployApproval |> should be True
+    EmailRules.matches (r "merged") deployApproval |> should be False
+
+[<Fact>]
 let ``label prefers the name and falls back to the criteria`` () =
     EmailRules.label (rule "PR reviews" "github.com" "") |> should equal "PR reviews"
     EmailRules.label (rule "" "github.com" "review") |> should equal "github.com · \"review\""
+    EmailRules.label (recipientRule "approval_requested@noreply.github.com")
+    |> should equal "to/cc approval_requested@noreply.github.com"
 
 // ----- polling cursor
 

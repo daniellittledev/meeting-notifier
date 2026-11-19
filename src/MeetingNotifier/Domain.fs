@@ -70,6 +70,13 @@ module Domain =
           Subject: string
           FromName: string
           FromAddress: string
+          /// The To and Cc recipients' display names and addresses, flattened
+          /// for rule matching. GitHub carries its notification reason here —
+          /// e.g. a deployment approval request cc's
+          /// "approval_requested@noreply.github.com" — which the From never
+          /// reveals. Empty for emails rebuilt from the saved store, where
+          /// matching has already happened.
+          Recipients: string list
           Received: DateTimeOffset
           WebLink: string option }
 

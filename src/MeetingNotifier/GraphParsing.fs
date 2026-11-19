@@ -134,6 +134,8 @@ module GraphParsing =
         { id: string
           subject: string
           from: GraphRecipient
+          toRecipients: GraphRecipient[]
+          ccRecipients: GraphRecipient[]
           receivedDateTime: string
           webLink: string
           parentFolderId: string }
@@ -152,6 +154,17 @@ module GraphParsing =
         | true, v -> v
         | _ -> DateTimeOffset.MinValue
 
+    /// The display names and addresses carried by a recipient array, dropping
+    /// blanks, so a rule's RecipientContains can match either.
+    let private recipientStrings (rs: GraphRecipient[]) : string list =
+        if isNull rs then []
+        else
+            rs
+            |> Array.filter (fun r -> not (isNull (box r)) && not (isNull (box r.emailAddress)))
+            |> Array.collect (fun r -> [| r.emailAddress.name; r.emailAddress.address |])
+            |> Array.filter (String.IsNullOrWhiteSpace >> not)
+            |> Array.toList
+
     let messageToDomain (m: GraphMessage) : Email =
         let addr =
             if isNull (box m.from) || isNull (box m.from.emailAddress) then None
@@ -161,6 +174,7 @@ module GraphParsing =
           Subject = (if String.IsNullOrWhiteSpace m.subject then "(no subject)" else m.subject)
           FromName = addr |> Option.map (fun a -> orEmpty a.name) |> Option.defaultValue ""
           FromAddress = addr |> Option.map (fun a -> orEmpty a.address) |> Option.defaultValue ""
+          Recipients = recipientStrings m.toRecipients @ recipientStrings m.ccRecipients
           Received = parseGraphTimestamp m.receivedDateTime
           WebLink = opt m.webLink }
 
@@ -195,7 +209,7 @@ module GraphParsing =
         let filter = Uri.EscapeDataString $"receivedDateTime ge {ts} and isDraft eq false"
         $"https://graph.microsoft.com/v1.0/me/mailFolders/{Uri.EscapeDataString folderId}/messages"
         + $"?$filter={filter}"
-        + "&$select=id,subject,from,receivedDateTime,webLink,parentFolderId"
+        + "&$select=id,subject,from,toRecipients,ccRecipients,receivedDateTime,webLink,parentFolderId"
         + "&$orderby=receivedDateTime asc"
         + "&$top=50"
 

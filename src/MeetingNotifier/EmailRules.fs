@@ -16,7 +16,9 @@ module EmailRules =
     /// A rule needs at least one criterion, otherwise it would match every
     /// email in the mailbox.
     let isActive (rule: Config.EmailRule) =
-        hasText rule.From || hasText rule.SubjectContains
+        hasText rule.From
+        || hasText rule.RecipientContains
+        || hasText rule.SubjectContains
 
     let activeRules (rules: Config.EmailRule seq) : Config.EmailRule list =
         rules |> Seq.filter isActive |> List.ofSeq
@@ -28,16 +30,20 @@ module EmailRules =
             not (hasText rule.From)
             || containsCI rule.From email.FromAddress
             || containsCI rule.From email.FromName
+        let recipientOk =
+            not (hasText rule.RecipientContains)
+            || email.Recipients |> List.exists (containsCI rule.RecipientContains)
         let subjectOk =
             not (hasText rule.SubjectContains)
             || containsCI rule.SubjectContains email.Subject
-        isActive rule && fromOk && subjectOk
+        isActive rule && fromOk && recipientOk && subjectOk
 
     /// The label shown for a rule: its name, or a summary of its criteria.
     let label (rule: Config.EmailRule) : string =
         if hasText rule.Name then rule.Name.Trim()
         else
             [ (if hasText rule.From then Some(rule.From.Trim()) else None)
+              (if hasText rule.RecipientContains then Some(sprintf "to/cc %s" (rule.RecipientContains.Trim())) else None)
               (if hasText rule.SubjectContains then Some(sprintf "\"%s\"" (rule.SubjectContains.Trim())) else None) ]
             |> List.choose id
             |> String.concat " · "
