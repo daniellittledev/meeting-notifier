@@ -292,12 +292,13 @@ module SettingsWindow =
                 box
             let nameBox = labelled "Name" existing.Name
             let fromBox = labelled "From contains (sender address or name)" existing.From
+            let recipBox = labelled "To/Cc contains (recipient address or name)" existing.RecipientContains
             let subjBox = labelled "Subject contains" existing.SubjectContains
             let buttons = StackPanel(Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right)
             let mutable result = None
             let ok = styleButton (Button(Content = "Save", Width = 80.0, Margin = Thickness(0.0, 0.0, 8.0, 0.0), IsDefault = true))
             ok.Click.Add(fun _ ->
-                let r : Config.EmailRule = { Name = nameBox.Text.Trim(); From = fromBox.Text.Trim(); SubjectContains = subjBox.Text.Trim() }
+                let r : Config.EmailRule = { Name = nameBox.Text.Trim(); From = fromBox.Text.Trim(); RecipientContains = recipBox.Text.Trim(); SubjectContains = subjBox.Text.Trim() }
                 result <- Some r
                 dlg.DialogResult <- Nullable true)
             let cancel = styleButton (Button(Content = "Cancel", Width = 80.0, IsCancel = true))
@@ -382,6 +383,7 @@ module SettingsWindow =
                     |> Array.iteri (fun i r ->
                         let subtitle =
                             [ if not (String.IsNullOrWhiteSpace r.From) then sprintf "From %s" r.From
+                              if not (String.IsNullOrWhiteSpace r.RecipientContains) then sprintf "To/Cc %s" r.RecipientContains
                               if not (String.IsNullOrWhiteSpace r.SubjectContains) then sprintf "Subject contains %s" r.SubjectContains ]
                             |> String.concat "   ·   "
                         let actions = StackPanel(Orientation = Orientation.Horizontal)
@@ -400,7 +402,7 @@ module SettingsWindow =
                 let existing =
                     match index with
                     | Some i when i < Array.length cfg.EmailRules -> cfg.EmailRules.[i]
-                    | _ -> { Name = ""; From = ""; SubjectContains = "" }
+                    | _ -> { Name = ""; From = ""; RecipientContains = ""; SubjectContains = "" }
                 match showRuleDialog existing with
                 | Some r ->
                     change (fun c ->
