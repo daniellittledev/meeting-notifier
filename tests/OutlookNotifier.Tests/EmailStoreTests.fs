@@ -14,6 +14,7 @@ let private alert id (received: DateTimeOffset) =
           Subject = "Review requested " + id
           FromName = "GitHub"
           FromAddress = "notifications@github.com"
+          Recipients = []
           Received = received
           WebLink = Some("https://outlook/" + id) }
       RuleName = "PR reviews" }

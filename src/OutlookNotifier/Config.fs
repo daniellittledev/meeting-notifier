@@ -11,14 +11,19 @@ open System.Text.Json.Serialization.Custom
 module Config =
 
     /// A rule that turns a matching incoming email into a check-off reminder.
-    /// `From` and `SubjectContains` are case-insensitive partial matches; when
-    /// both are set both must match. A rule with neither set is ignored.
+    /// `From`, `RecipientContains` and `SubjectContains` are case-insensitive
+    /// partial matches; every criterion that is set must match. A rule with
+    /// none set is ignored.
     [<CLIMutable>]
     type EmailRule =
         { Name: string
           /// Matched against the sender's address and display name, e.g.
           /// "notifications@github.com" or just "github.com".
           From: string
+          /// Matched against the To and Cc recipients' addresses and display
+          /// names, e.g. GitHub's reason address
+          /// "approval_requested@noreply.github.com" (which rides in Cc).
+          RecipientContains: string
           SubjectContains: string }
 
     [<CLIMutable>]
@@ -152,6 +157,7 @@ module Config =
             |> Array.map (fun r ->
                 { Name = orEmpty r.Name
                   From = orEmpty r.From
+                  RecipientContains = orEmpty r.RecipientContains
                   SubjectContains = orEmpty r.SubjectContains })
         // A missing field deserialises to 0, so treat non-positive as "use
         // the default" rather than "no lookback".

@@ -101,6 +101,8 @@ let ``parseMessagesPage maps sender, received time, link and folder`` () =
               { "id": "AAMk1",
                 "subject": "[org/repo] Review requested on #42",
                 "from": { "emailAddress": { "name": "GitHub", "address": "notifications@github.com" } },
+                "toRecipients": [ { "emailAddress": { "name": "org/repo", "address": "repo@noreply.github.com" } } ],
+                "ccRecipients": [ { "emailAddress": { "name": "Approval requested", "address": "approval_requested@noreply.github.com" } } ],
                 "receivedDateTime": "2026-04-15T10:05:00Z",
                 "webLink": "https://outlook.office365.com/owa/?ItemID=AAMk1",
                 "parentFolderId": "inbox-id" } ],
@@ -112,6 +114,10 @@ let ``parseMessagesPage maps sender, received time, link and folder`` () =
     e.Id |> should equal (EmailId "AAMk1")
     e.FromName |> should equal "GitHub"
     e.FromAddress |> should equal "notifications@github.com"
+    e.Recipients
+    |> should equal
+        [ "org/repo"; "repo@noreply.github.com"
+          "Approval requested"; "approval_requested@noreply.github.com" ]
     e.Received |> should equal (DateTimeOffset(2026, 4, 15, 10, 5, 0, TimeSpan.Zero))
     e.WebLink |> should equal (Some "https://outlook.office365.com/owa/?ItemID=AAMk1")
 
@@ -123,6 +129,7 @@ let ``parseMessagesPage tolerates a missing sender and subject`` () =
     let _, e = emails.Head
     e.Subject |> should equal "(no subject)"
     e.FromAddress |> should equal ""
+    e.Recipients |> should be Empty
     e.WebLink |> should equal None
 
 [<Fact>]

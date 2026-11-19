@@ -106,6 +106,7 @@ and other things where someone is waiting on you:
 ```json
 "emailRules": [
   { "name": "PR reviews", "from": "notifications@github.com", "subjectContains": "requested your review" },
+  { "name": "Deploy approvals", "recipientContains": "approval_requested@noreply.github.com" },
   { "name": "Azure DevOps", "from": "azuredevops@microsoft.com" },
   { "subjectContains": "action required" }
 ]
@@ -113,8 +114,16 @@ and other things where someone is waiting on you:
 
 - `from` — partial, case-insensitive match against the sender's address
   *or* display name (`"github.com"` is enough).
+- `recipientContains` — partial, case-insensitive match against the **To**
+  and **Cc** recipients (address or display name). GitHub notifications all
+  come *from* `notifications@github.com`, but carry their reason as a Cc
+  address — e.g. a deployment-approval request Cc's
+  `approval_requested@noreply.github.com`, a review request
+  `review_requested@noreply.github.com` — so this is how you single those
+  out. (GitHub's reason addresses never appear in `from`.)
 - `subjectContains` — partial, case-insensitive match against the subject.
-- When a rule sets both, both must match. A rule with neither is ignored.
+- When a rule sets more than one, all set criteria must match. A rule with
+  none is ignored.
 - `name` — optional label shown on the row; defaults to the criteria.
 - `emailLookbackMinutes` — on the very first launch with rules, also pick
   up matching mail received this many minutes earlier (default: 60). After

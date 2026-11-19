@@ -163,6 +163,10 @@ module EmailStore =
                               Subject = orEmpty p.Subject
                               FromName = orEmpty p.FromName
                               FromAddress = orEmpty p.FromAddress
+                              // Recipients drive rule matching, which already
+                              // ran before the email was persisted; no need to
+                              // store or restore them.
+                              Recipients = []
                               Received = p.Received
                               WebLink =
                                 if String.IsNullOrWhiteSpace p.WebLink then None

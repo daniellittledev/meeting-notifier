@@ -64,6 +64,7 @@ let private emailAlert id subject =
           Subject = subject
           FromName = "GitHub"
           FromAddress = "notifications@github.com"
+          Recipients = []
           Received = now
           WebLink = Some "https://outlook/msg" }
       RuleName = "PR reviews" }

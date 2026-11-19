@@ -99,11 +99,13 @@ let ``sanitize replaces null email rules with an empty array`` () =
 
 [<Fact>]
 let ``sanitize replaces null rule fields with empty strings`` () =
-    let rule : Config.EmailRule = { Name = null; From = "github.com"; SubjectContains = null }
+    let rule : Config.EmailRule =
+        { Name = null; From = "github.com"; RecipientContains = null; SubjectContains = null }
     let cfg = { baseCfg with EmailRules = [| rule |] }
     let r = (Config.sanitize cfg).EmailRules.[0]
     r.Name |> should equal ""
     r.From |> should equal "github.com"
+    r.RecipientContains |> should equal ""
     r.SubjectContains |> should equal ""
 
 [<Fact>]
