@@ -168,7 +168,12 @@ module Config =
             FinalReminderMinutes = finalMinutes
             PollIntervalSeconds = poll
             Volume = volume
-            EmailVolume = max 0 (min 100 cfg.EmailVolume)
+            // A missing field deserialises to 0. The email chime is muted with
+            // its own toggle rather than a zero volume, so non-positive means
+            // "use the default", like EmailLookbackMinutes.
+            EmailVolume =
+                if cfg.EmailVolume <= 0 then defaults.EmailVolume
+                else min 100 cfg.EmailVolume
             EmailRules = rules
             EmailLookbackMinutes = lookback
             EmailIncludedFolders =
