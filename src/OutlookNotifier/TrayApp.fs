@@ -343,9 +343,6 @@ module TrayApp =
 
         let rec pollLoop () =
             async {
-                let period =
-                    TimeSpan.FromSeconds(float cfg.PollIntervalSeconds)
-                use timer = new PeriodicTimer(period)
                 // Run once immediately so the user doesn't wait a full
                 // tick after opening the app.
                 try
@@ -354,14 +351,13 @@ module TrayApp =
                 let mutable keepGoing = true
                 while keepGoing && not cts.IsCancellationRequested do
                     try
-                        let! next =
-                            timer.WaitForNextTickAsync(cts.Token).AsTask()
-                            |> Async.AwaitTask
-                        if next then
-                            try do! runTick ()
-                            with ex -> eprintfn "tick failed: %s" ex.Message
-                        else
-                            keepGoing <- false
+                        // Re-read the interval each cycle so a change made in
+                        // Settings takes effect on the next tick, no restart.
+                        let period =
+                            TimeSpan.FromSeconds(float cfg.PollIntervalSeconds)
+                        do! Task.Delay(period, cts.Token) |> Async.AwaitTask
+                        try do! runTick ()
+                        with ex -> eprintfn "tick failed: %s" ex.Message
                     with
                     | :? OperationCanceledException -> keepGoing <- false
                     | ex ->

@@ -111,6 +111,20 @@ module Config =
             if not (File.Exists configPath) && File.Exists legacyConfig then
                 ensureDir ()
                 File.Copy(legacyConfig, configPath, false)
+                // A pre-rename config predates the tray-click setting, whose
+                // intended default is "on"; a missing JSON bool would load as
+                // false, so set it explicitly when the key is absent.
+                let raw = File.ReadAllText configPath
+                if not (raw.Contains "trayClickOpensSettings") then
+                    try
+                        let migrated =
+                            JsonSerializer.Deserialize<AppConfig>(raw, jsonOptions ())
+                        File.WriteAllText(
+                            configPath,
+                            JsonSerializer.Serialize(
+                                { migrated with TrayClickOpensSettings = true },
+                                jsonOptions ()))
+                    with _ -> ()
                 let legacyCache = Path.Combine(legacyAppDataDir, "msal.cache")
                 if File.Exists legacyCache && not (File.Exists msalCachePath) then
                     File.Copy(legacyCache, msalCachePath, false)
