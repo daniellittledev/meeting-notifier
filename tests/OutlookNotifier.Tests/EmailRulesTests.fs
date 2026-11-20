@@ -124,6 +124,19 @@ let ``a multi-value from does not match a sender outside the list`` () =
     EmailRules.matches r other |> should be False
 
 [<Fact>]
+let ``subjectContains matches any one of a comma-separated list`` () =
+    let r = rule "" "" "review requested, action required"
+    EmailRules.matches r pr |> should be True
+    let other = email "o2" "GitHub" "notifications@github.com" "merged your PR" now
+    EmailRules.matches r other |> should be False
+
+[<Fact>]
+let ``recipientContains matches any one of a comma-separated list`` () =
+    let r = recipientRule "review_requested@noreply, approval_requested@noreply"
+    EmailRules.matches r deployApproval |> should be True
+    EmailRules.matches r pr |> should be False
+
+[<Fact>]
 let ``a from of only commas is inactive and matches nothing`` () =
     let r = rule "" " , " ""
     EmailRules.isActive r |> should be False

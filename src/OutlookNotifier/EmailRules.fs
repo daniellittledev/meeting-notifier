@@ -31,27 +31,28 @@ module EmailRules =
     /// own it would match nearly everything.
     let isActive (rule: Config.EmailRule) =
         not (List.isEmpty (terms rule.From))
-        || hasText rule.RecipientContains
-        || hasText rule.SubjectContains
+        || not (List.isEmpty (terms rule.RecipientContains))
+        || not (List.isEmpty (terms rule.SubjectContains))
 
     let activeRules (rules: Config.EmailRule seq) : Config.EmailRule list =
         rules |> Seq.filter isActive |> List.ofSeq
 
-    /// Does `email` satisfy `rule`? Each criterion that's set must match
-    /// (case-insensitive partial match); unset criteria are ignored.
+    /// Does `email` satisfy `rule`? Each criterion that's set must match;
+    /// unset criteria are ignored. A criterion is a comma-separated list of
+    /// case-insensitive partial matches that passes when any one term hits.
     let matches (rule: Config.EmailRule) (email: Email) : bool =
-        let fromTerms = terms rule.From
+        let anyTerm (criterion: string) (hit: string -> bool) =
+            match terms criterion with
+            | [] -> true
+            | ts -> ts |> List.exists hit
         let fromOk =
-            List.isEmpty fromTerms
-            || fromTerms
-               |> List.exists (fun t ->
-                   containsCI t email.FromAddress || containsCI t email.FromName)
+            anyTerm rule.From (fun t ->
+                containsCI t email.FromAddress || containsCI t email.FromName)
         let recipientOk =
-            not (hasText rule.RecipientContains)
-            || email.Recipients |> List.exists (containsCI rule.RecipientContains)
+            anyTerm rule.RecipientContains (fun t ->
+                email.Recipients |> List.exists (containsCI t))
         let subjectOk =
-            not (hasText rule.SubjectContains)
-            || containsCI rule.SubjectContains email.Subject
+            anyTerm rule.SubjectContains (fun t -> containsCI t email.Subject)
         let notExcluded =
             terms rule.SubjectExcludesPrefix
             |> List.forall (fun p -> not (startsWithCI p email.Subject))

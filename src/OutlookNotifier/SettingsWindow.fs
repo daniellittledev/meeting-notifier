@@ -830,8 +830,8 @@ module SettingsWindow =
             let excludeBox = input "Skip if subject starts with" existing.SubjectExcludesPrefix
             labelled panel "Name" nameBox
             labelled panel "From contains (sender address or name; comma-separated to match any)" fromBox
-            labelled panel "To or Cc contains (recipient address or name)" recipBox
-            labelled panel "Subject contains" subjBox
+            labelled panel "To or Cc contains (recipient address or name; comma-separated to match any)" recipBox
+            labelled panel "Subject contains (comma-separated to match any)" subjBox
             labelled panel "Skip if subject starts with (e.g. Re:, Fwd:)" excludeBox
             let current () : Config.EmailRule =
                 { Name = nameBox.Text.Trim()

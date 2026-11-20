@@ -10,15 +10,14 @@ noise — subjects starting with `Re:` or `Fwd:`.
 
 ## Goals
 
-- A rule's `From` can list several sender terms; it matches when **any** one
-  hits the sender name or address (OR), so both authors fit in one rule.
+- Each matching criterion (`From`, `RecipientContains`, `SubjectContains`)
+  can list several terms; it matches when **any** one hits (OR), so e.g. two
+  authors who share an address but differ by name fit in one rule.
 - A rule can skip emails whose subject **starts with** a configured term
   (e.g. `Re:`, `Fwd:`), so replies and forwards don't surface.
 
 ## Non-goals / anti-goals
 
-- No multi-value support for the To/Cc or Subject-contains criteria (out of
-  scope; `From` only).
 - Exclusion is a *prefix* match, not a substring match: excluding `Re:` must
   not drop a subject like `Core: sprint`.
 - An exclusion alone never makes a rule active — it only narrows a rule that
@@ -41,17 +40,22 @@ noise — subjects starting with `Re:` or `Fwd:`.
 - `Config.EmailRule` gains `SubjectExcludesPrefix: string`. Missing in old
   JSON → null → normalised to `""` in `sanitize` (back-compatible).
 - `EmailRules`:
-  - `From` is split on commas into terms; `fromOk` is true when the From
-    criterion is empty or **any** term matches sender name or address.
+  - Each matching criterion (`From`, `RecipientContains`, `SubjectContains`)
+    is split on commas into terms via one `terms` helper; the criterion is
+    OK when it is empty or **any** term matches (sender name/address for
+    `From`, a recipient for `RecipientContains`, the subject for
+    `SubjectContains`).
   - `SubjectExcludesPrefix` is split on commas into prefixes; a rule is
     rejected when the subject starts with any prefix (case-insensitive,
     after trimming leading space).
-  - `isActive` is unchanged — the exclusion does not count as a criterion.
+  - `isActive` treats a criterion as set only when it has at least one term,
+    so a value of only commas/whitespace doesn't make a rule active; the
+    exclusion never counts.
   - `label`'s generated summary notes the exclusion (e.g. `not Re:, Fwd:`).
 - `SettingsWindow` rule dialog gains a "Skip if subject starts with" box
-  (hint: `Re:, Fwd:`); the From label notes it accepts a comma-separated
-  list. `isActive`-based save validation already keeps exclusion-only rules
-  unsaveable.
+  (hint: `Re:, Fwd:`); the From/To-Cc/Subject labels note they accept a
+  comma-separated list. `isActive`-based save validation already keeps
+  exclusion-only rules unsaveable.
 
 ## Left to the builder
 

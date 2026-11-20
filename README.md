@@ -114,10 +114,7 @@ and other things where someone is waiting on you:
 ```
 
 - `from` — partial, case-insensitive match against the sender's address
-  *or* display name (`"github.com"` is enough). A comma-separated list
-  matches when **any** term hits — handy when two senders share an address
-  but differ by name (both GitHub authors send from
-  `notifications@github.com`).
+  *or* display name (`"github.com"` is enough).
 - `recipientContains` — partial, case-insensitive match against the **To**
   and **Cc** recipients (address or display name). GitHub notifications all
   come *from* `notifications@github.com`, but carry their reason as a Cc
@@ -126,6 +123,10 @@ and other things where someone is waiting on you:
   `review_requested@noreply.github.com` — so this is how you single those
   out. (GitHub's reason addresses never appear in `from`.)
 - `subjectContains` — partial, case-insensitive match against the subject.
+- `from`, `recipientContains` and `subjectContains` each take a
+  comma-separated list that matches when **any** one term hits — handy when
+  two senders share an address but differ by name (both GitHub authors send
+  from `notifications@github.com`).
 - `subjectExcludesPrefix` — comma-separated prefixes (e.g. `"Re:, Fwd:"`)
   that skip the email when its subject **starts with** any of them, so
   replies and forwards don't surface. It only narrows a rule; a rule with
