@@ -13,10 +13,24 @@ module EmailRules =
         hasText haystack
         && haystack.IndexOf(needle.Trim(), StringComparison.OrdinalIgnoreCase) >= 0
 
-    /// A rule needs at least one criterion, otherwise it would match every
-    /// email in the mailbox.
+    /// Split a comma-separated criterion into its non-empty, trimmed terms.
+    let private terms (s: string) : string list =
+        if isNull s then []
+        else
+            s.Split(',')
+            |> Array.map (fun t -> t.Trim())
+            |> Array.filter hasText
+            |> List.ofArray
+
+    let private startsWithCI (prefix: string) (s: string) =
+        hasText s
+        && s.TrimStart().StartsWith(prefix.Trim(), StringComparison.OrdinalIgnoreCase)
+
+    /// A rule needs at least one matching criterion, otherwise it would match
+    /// every email in the mailbox. A subject exclusion doesn't count — on its
+    /// own it would match nearly everything.
     let isActive (rule: Config.EmailRule) =
-        hasText rule.From
+        not (List.isEmpty (terms rule.From))
         || hasText rule.RecipientContains
         || hasText rule.SubjectContains
 
@@ -26,17 +40,22 @@ module EmailRules =
     /// Does `email` satisfy `rule`? Each criterion that's set must match
     /// (case-insensitive partial match); unset criteria are ignored.
     let matches (rule: Config.EmailRule) (email: Email) : bool =
+        let fromTerms = terms rule.From
         let fromOk =
-            not (hasText rule.From)
-            || containsCI rule.From email.FromAddress
-            || containsCI rule.From email.FromName
+            List.isEmpty fromTerms
+            || fromTerms
+               |> List.exists (fun t ->
+                   containsCI t email.FromAddress || containsCI t email.FromName)
         let recipientOk =
             not (hasText rule.RecipientContains)
             || email.Recipients |> List.exists (containsCI rule.RecipientContains)
         let subjectOk =
             not (hasText rule.SubjectContains)
             || containsCI rule.SubjectContains email.Subject
-        isActive rule && fromOk && recipientOk && subjectOk
+        let notExcluded =
+            terms rule.SubjectExcludesPrefix
+            |> List.forall (fun p -> not (startsWithCI p email.Subject))
+        isActive rule && fromOk && recipientOk && subjectOk && notExcluded
 
     /// The label shown for a rule: its name, or a summary of its criteria.
     let label (rule: Config.EmailRule) : string =
@@ -44,7 +63,8 @@ module EmailRules =
         else
             [ (if hasText rule.From then Some(rule.From.Trim()) else None)
               (if hasText rule.RecipientContains then Some(sprintf "to/cc %s" (rule.RecipientContains.Trim())) else None)
-              (if hasText rule.SubjectContains then Some(sprintf "\"%s\"" (rule.SubjectContains.Trim())) else None) ]
+              (if hasText rule.SubjectContains then Some(sprintf "\"%s\"" (rule.SubjectContains.Trim())) else None)
+              (if hasText rule.SubjectExcludesPrefix then Some(sprintf "not %s" (rule.SubjectExcludesPrefix.Trim())) else None) ]
             |> List.choose id
             |> String.concat " · "
 
