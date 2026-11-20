@@ -58,6 +58,7 @@ module TrayApp =
         let mutable state = AlertState.empty
         let mutable lastSnapshot : Meeting list = []
         let emailRules = EmailRules.activeRules cfg.EmailRules
+        let rulesSignature = EmailStore.rulesSignature cfg.EmailRules
         // Pending / checked-off emails and the cursor survive restarts.
         let mutable emailStore =
             if Option.isSome mailSource then
@@ -65,9 +66,15 @@ module TrayApp =
             else EmailStore.empty
         // What's on disk, so saves only happen when something meaningful changed.
         let mutable savedEmailStore = emailStore
+        // Start the first poll from the saved cursor, but look back over the
+        // whole window if the rules changed while the app was closed, so a
+        // newly-added rule catches mail that arrived before it existed.
         let mutable emailState : EmailRules.EmailState =
-            { Since = EmailStore.startSince DateTimeOffset.Now cfg.EmailLookbackMinutes emailStore
+            { Since = EmailStore.startSinceForRules DateTimeOffset.Now cfg.EmailLookbackMinutes rulesSignature emailStore
               Seen = Map.empty }
+        // Record the rules we're scanning against so the next launch only
+        // looks back again when they actually change.
+        do emailStore <- EmailStore.withRulesSignature rulesSignature emailStore
         // A downloaded, ready-to-apply update, once a check has found one.
         let mutable preparedUpdate
             : (Velopack.UpdateManager * Velopack.UpdateInfo) option = None

@@ -76,6 +76,72 @@ let ``startSince caps catch-up after a long absence`` () =
     EmailStore.startSince now 60 (EmailStore.withSince saved EmailStore.empty)
     |> should equal (now - EmailStore.maxCatchUp)
 
+let private rule name from recipient subject : Config.EmailRule =
+    { Name = name; From = from; RecipientContains = recipient; SubjectContains = subject }
+
+let private approvals = rule "Approvals" "notifications@github.com" "approval_requested@noreply.github.com" ""
+let private reviews = rule "Reviews" "notifications@github.com" "review_requested@noreply.github.com" ""
+
+[<Fact>]
+let ``rulesSignature ignores name, order and case`` () =
+    let a = EmailStore.rulesSignature [ approvals; reviews ]
+    let b = EmailStore.rulesSignature [ { reviews with Name = "Renamed" }
+                                        { approvals with From = "Notifications@GitHub.com" } ]
+    a |> should equal b
+
+[<Fact>]
+let ``rulesSignature changes when a rule is added`` () =
+    (EmailStore.rulesSignature [ approvals ] = EmailStore.rulesSignature [ approvals; reviews ])
+    |> should be False
+
+[<Fact>]
+let ``startSinceForRules uses the lookback on a first run`` () =
+    let sign = EmailStore.rulesSignature [ approvals ]
+    EmailStore.startSinceForRules now 60 sign EmailStore.empty
+    |> should equal (now - TimeSpan.FromMinutes 60.0)
+
+[<Fact>]
+let ``startSinceForRules resumes from the saved cursor when the rules are unchanged`` () =
+    let sign = EmailStore.rulesSignature [ approvals ]
+    let saved =
+        EmailStore.empty
+        |> EmailStore.withSince (now - TimeSpan.FromMinutes 5.0)
+        |> EmailStore.withRulesSignature sign
+    EmailStore.startSinceForRules now 60 sign saved
+    |> should equal (now - TimeSpan.FromMinutes 5.0)
+
+[<Fact>]
+let ``startSinceForRules pulls the cursor back to the lookback when the rules changed`` () =
+    let saved =
+        EmailStore.empty
+        |> EmailStore.withSince (now - TimeSpan.FromMinutes 5.0)
+        |> EmailStore.withRulesSignature (EmailStore.rulesSignature [ approvals ])
+    EmailStore.startSinceForRules now 60 (EmailStore.rulesSignature [ approvals; reviews ]) saved
+    |> should equal (now - TimeSpan.FromMinutes 60.0)
+
+[<Fact>]
+let ``startSinceForRules keeps a cursor already older than the lookback`` () =
+    let saved =
+        EmailStore.empty
+        |> EmailStore.withSince (now - TimeSpan.FromHours 5.0)
+        |> EmailStore.withRulesSignature (EmailStore.rulesSignature [ approvals ])
+    EmailStore.startSinceForRules now 60 (EmailStore.rulesSignature [ approvals; reviews ]) saved
+    |> should equal (now - TimeSpan.FromHours 5.0)
+
+[<Fact>]
+let ``json round-trips the rules signature`` () =
+    let s =
+        EmailStore.empty
+        |> EmailStore.withSince now
+        |> EmailStore.withRulesSignature (EmailStore.rulesSignature [ approvals ])
+    EmailStore.ofJson (EmailStore.toJson s) |> should equal s
+
+[<Fact>]
+let ``needsSave persists a changed rules signature`` () =
+    let saved = EmailStore.withSince now EmailStore.empty
+    let current = EmailStore.withRulesSignature "sig" saved
+    EmailStore.needsSave saved current |> should be True
+
 [<Fact>]
 let ``json round-trips the whole store`` () =
     let s =

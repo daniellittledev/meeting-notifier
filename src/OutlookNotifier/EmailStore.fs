@@ -34,7 +34,8 @@ module EmailStore =
     type StoreDto =
         { Since: Nullable<DateTimeOffset>
           Pending: PendingDto[]
-          Completed: CompletedDto[] }
+          Completed: CompletedDto[]
+          Rules: string }
 
     type EmailStore =
         { /// The polling cursor as of the last successful poll.
@@ -43,12 +44,17 @@ module EmailStore =
           Pending: EmailAlert list
           /// Checked-off emails, keyed by id, with their received time so
           /// they can be pruned once they're too old to be fetched again.
-          Completed: Map<EmailId, DateTimeOffset> }
+          Completed: Map<EmailId, DateTimeOffset>
+          /// Fingerprint of the rules the cursor has been scanned against, so
+          /// a restart can tell when the rules changed and owe a look-back.
+          /// None until the first scan records one (and on legacy stores).
+          RulesSignature: string option }
 
     let empty =
         { Since = None
           Pending = []
-          Completed = Map.empty }
+          Completed = Map.empty
+          RulesSignature = None }
 
     /// Checked-off ids are kept this long; older mail is never re-fetched
     /// (catch-up is capped well below this), so there's no need to remember it.
@@ -87,6 +93,19 @@ module EmailStore =
     let withSince (since: DateTimeOffset) (store: EmailStore) : EmailStore =
         { store with Since = Some since }
 
+    let withRulesSignature (signature: string) (store: EmailStore) : EmailStore =
+        { store with RulesSignature = Some signature }
+
+    /// A stable fingerprint of the active rules' matching criteria, with the
+    /// rule name and ordering ignored (neither affects what matches) so only a
+    /// real change to the criteria owes a look-back.
+    let rulesSignature (rules: Config.EmailRule seq) : string =
+        let norm (s: string) = (if isNull s then "" else s.Trim().ToLowerInvariant())
+        EmailRules.activeRules rules
+        |> List.map (fun r -> sprintf "%s|%s|%s" (norm r.From) (norm r.RecipientContains) (norm r.SubjectContains))
+        |> List.sort
+        |> String.concat "\n"
+
     /// Forget checked-off emails older than the retention window.
     let prune (now: DateTimeOffset) (store: EmailStore) : EmailStore =
         let cutoff = now - completedRetention
@@ -107,6 +126,7 @@ module EmailStore =
             | _ -> false
         saved.Pending <> current.Pending
         || saved.Completed <> current.Completed
+        || saved.RulesSignature <> current.RulesSignature
         || cursorMoved
 
     /// Where the first poll after launch should start: from the saved cursor
@@ -115,6 +135,23 @@ module EmailStore =
         match store.Since with
         | Some s -> max s (now - maxCatchUp)
         | None -> now - TimeSpan.FromMinutes(float lookbackMinutes)
+
+    /// Like `startSince`, but aware that the rules may have changed since the
+    /// cursor was last saved. An unchanged rule set resumes from the saved
+    /// cursor as usual; a changed one pulls the cursor back to cover the whole
+    /// look-back window, so mail that already matches a newly-added rule — but
+    /// arrived before it existed — is caught on the next poll. Already-handled
+    /// mail doesn't re-alert: the Completed and Pending sets still dedupe it.
+    let startSinceForRules
+        (now: DateTimeOffset)
+        (lookbackMinutes: int)
+        (signature: string)
+        (store: EmailStore)
+        : DateTimeOffset
+        =
+        let normal = startSince now lookbackMinutes store
+        if store.RulesSignature = Some signature then normal
+        else min normal (now - TimeSpan.FromMinutes(float lookbackMinutes))
 
     // ----- JSON (pure string <-> store)
 
@@ -144,7 +181,8 @@ module EmailStore =
               Completed =
                 store.Completed
                 |> Map.toArray
-                |> Array.map (fun (EmailId id, r) -> { CompletedDto.Id = id; Received = r }) }
+                |> Array.map (fun (EmailId id, r) -> { CompletedDto.Id = id; Received = r })
+              Rules = (match store.RulesSignature with Some s -> s | None -> null) }
         JsonSerializer.Serialize(dto, jsonOptions)
 
     /// Parse a saved store; anything unreadable yields the empty store
@@ -180,7 +218,8 @@ module EmailStore =
                     |> Map.ofArray
                 { Since = Option.ofNullable dto.Since
                   Pending = pending
-                  Completed = completed }
+                  Completed = completed
+                  RulesSignature = (if isNull dto.Rules then None else Some dto.Rules) }
         with _ -> empty
 
     // ----- Disk
