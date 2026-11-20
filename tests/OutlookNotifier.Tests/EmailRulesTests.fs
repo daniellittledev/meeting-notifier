@@ -9,10 +9,12 @@ open OutlookNotifier.Domain
 let private now = DateTimeOffset(2026, 4, 15, 10, 0, 0, TimeSpan.Zero)
 
 let private rule name from subject : Config.EmailRule =
-    { Name = name; From = from; RecipientContains = ""; SubjectContains = subject }
+    { Name = name; From = from; RecipientContains = ""; SubjectContains = subject
+      SubjectExcludesPrefix = "" }
 
 let private recipientRule recipient : Config.EmailRule =
-    { Name = ""; From = ""; RecipientContains = recipient; SubjectContains = "" }
+    { Name = ""; From = ""; RecipientContains = recipient; SubjectContains = ""
+      SubjectExcludesPrefix = "" }
 
 let private email id fromName fromAddress subject (received: DateTimeOffset) =
     { Id = EmailId id
@@ -84,7 +86,8 @@ let ``recipientContains does not match when no recipient contains it`` () =
 [<Fact>]
 let ``recipient and subject together both must match`` () =
     let r subject : Config.EmailRule =
-        { Name = ""; From = ""; RecipientContains = "approval_requested"; SubjectContains = subject }
+        { Name = ""; From = ""; RecipientContains = "approval_requested"; SubjectContains = subject
+          SubjectExcludesPrefix = "" }
     EmailRules.matches (r "deployment review") deployApproval |> should be True
     EmailRules.matches (r "merged") deployApproval |> should be False
 
@@ -94,6 +97,82 @@ let ``label prefers the name and falls back to the criteria`` () =
     EmailRules.label (rule "" "github.com" "review") |> should equal "github.com · \"review\""
     EmailRules.label (recipientRule "approval_requested@noreply.github.com")
     |> should equal "to/cc approval_requested@noreply.github.com"
+
+// ----- multi-value From and subject exclusion
+
+// Both authors send as notifications@github.com, so only the display name
+// tells them apart.
+let private fromTom =
+    email "t1" "Tom Dullemond" "notifications@github.com" "[org/repo] New PR #7" now
+
+let private fromAdam =
+    email "a1" "Adam Grande" "notifications@github.com" "[org/repo] New PR #8" now
+
+let private fromReply =
+    email "r1" "Tom Dullemond" "notifications@github.com" "Re: [org/repo] New PR #7" now
+
+[<Fact>]
+let ``from matches any one of a comma-separated list of senders`` () =
+    let r = rule "" "Tom Dullemond, Adam Grande" ""
+    EmailRules.matches r fromTom |> should be True
+    EmailRules.matches r fromAdam |> should be True
+
+[<Fact>]
+let ``a multi-value from does not match a sender outside the list`` () =
+    let r = rule "" "Tom Dullemond, Adam Grande" ""
+    let other = email "o1" "Someone Else" "notifications@github.com" "hi" now
+    EmailRules.matches r other |> should be False
+
+[<Fact>]
+let ``subjectContains matches any one of a comma-separated list`` () =
+    let r = rule "" "" "review requested, action required"
+    EmailRules.matches r pr |> should be True
+    let other = email "o2" "GitHub" "notifications@github.com" "merged your PR" now
+    EmailRules.matches r other |> should be False
+
+[<Fact>]
+let ``recipientContains matches any one of a comma-separated list`` () =
+    let r = recipientRule "review_requested@noreply, approval_requested@noreply"
+    EmailRules.matches r deployApproval |> should be True
+    EmailRules.matches r pr |> should be False
+
+[<Fact>]
+let ``a from of only commas is inactive and matches nothing`` () =
+    let r = rule "" " , " ""
+    EmailRules.isActive r |> should be False
+    EmailRules.matches r fromTom |> should be False
+
+[<Fact>]
+let ``subjectExcludesPrefix drops a subject starting with a listed prefix`` () =
+    let r = { rule "" "notifications@github.com" "" with SubjectExcludesPrefix = "Re:, Fwd:" }
+    EmailRules.matches r fromTom |> should be True
+    EmailRules.matches r fromReply |> should be False
+    let fwd = email "f1" "Tom Dullemond" "notifications@github.com" "Fwd: heads up" now
+    EmailRules.matches r fwd |> should be False
+
+[<Fact>]
+let ``subjectExcludesPrefix is a prefix, not a substring`` () =
+    // "Core: sprint" contains "re:" but does not start with it.
+    let r = { rule "" "notifications@github.com" "" with SubjectExcludesPrefix = "Re:" }
+    let core = email "c1" "GitHub" "notifications@github.com" "Core: sprint planning" now
+    EmailRules.matches r core |> should be True
+
+[<Fact>]
+let ``subjectExcludesPrefix is case-insensitive and ignores leading space`` () =
+    let r = { rule "" "notifications@github.com" "" with SubjectExcludesPrefix = "re:" }
+    let reply = email "r2" "GitHub" "notifications@github.com" "  RE: hello" now
+    EmailRules.matches r reply |> should be False
+
+[<Fact>]
+let ``an exclusion alone does not make a rule active`` () =
+    let r = { rule "" "" "" with SubjectExcludesPrefix = "Re:" }
+    EmailRules.isActive r |> should be False
+    EmailRules.matches r fromReply |> should be False
+
+[<Fact>]
+let ``label notes the subject exclusion`` () =
+    let r = { rule "" "github.com" "" with SubjectExcludesPrefix = "Re:, Fwd:" }
+    EmailRules.label r |> should equal "github.com · not Re:, Fwd:"
 
 // ----- polling cursor
 

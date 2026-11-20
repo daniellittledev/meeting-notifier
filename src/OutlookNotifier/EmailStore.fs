@@ -102,7 +102,10 @@ module EmailStore =
     let rulesSignature (rules: Config.EmailRule seq) : string =
         let norm (s: string) = (if isNull s then "" else s.Trim().ToLowerInvariant())
         EmailRules.activeRules rules
-        |> List.map (fun r -> sprintf "%s|%s|%s" (norm r.From) (norm r.RecipientContains) (norm r.SubjectContains))
+        |> List.map (fun r ->
+            sprintf "%s|%s|%s|%s"
+                (norm r.From) (norm r.RecipientContains)
+                (norm r.SubjectContains) (norm r.SubjectExcludesPrefix))
         |> List.sort
         |> String.concat "\n"
 

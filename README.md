@@ -108,6 +108,7 @@ and other things where someone is waiting on you:
   { "name": "PR reviews", "from": "notifications@github.com", "subjectContains": "requested your review" },
   { "name": "Deploy approvals", "recipientContains": "approval_requested@noreply.github.com" },
   { "name": "Azure DevOps", "from": "azuredevops@microsoft.com" },
+  { "name": "My team's PRs", "from": "Tom Dullemond, Adam Grande", "subjectExcludesPrefix": "Re:, Fwd:" },
   { "subjectContains": "action required" }
 ]
 ```
@@ -122,8 +123,16 @@ and other things where someone is waiting on you:
   `review_requested@noreply.github.com` — so this is how you single those
   out. (GitHub's reason addresses never appear in `from`.)
 - `subjectContains` — partial, case-insensitive match against the subject.
-- When a rule sets more than one, all set criteria must match. A rule with
-  none is ignored.
+- `from`, `recipientContains` and `subjectContains` each take a
+  comma-separated list that matches when **any** one term hits — handy when
+  two senders share an address but differ by name (both GitHub authors send
+  from `notifications@github.com`).
+- `subjectExcludesPrefix` — comma-separated prefixes (e.g. `"Re:, Fwd:"`)
+  that skip the email when its subject **starts with** any of them, so
+  replies and forwards don't surface. It only narrows a rule; a rule with
+  nothing but an exclusion is ignored.
+- When a rule sets more than one criterion, all set criteria must match. A
+  rule with no matching criterion is ignored.
 - `name` — optional label shown on the row; defaults to the criteria.
 - `emailLookbackMinutes` — on the very first launch with rules, also pick
   up matching mail received this many minutes earlier (default: 60). After

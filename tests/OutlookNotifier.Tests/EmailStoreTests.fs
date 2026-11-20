@@ -77,7 +77,8 @@ let ``startSince caps catch-up after a long absence`` () =
     |> should equal (now - EmailStore.maxCatchUp)
 
 let private rule name from recipient subject : Config.EmailRule =
-    { Name = name; From = from; RecipientContains = recipient; SubjectContains = subject }
+    { Name = name; From = from; RecipientContains = recipient; SubjectContains = subject
+      SubjectExcludesPrefix = "" }
 
 let private approvals = rule "Approvals" "notifications@github.com" "approval_requested@noreply.github.com" ""
 let private reviews = rule "Reviews" "notifications@github.com" "review_requested@noreply.github.com" ""

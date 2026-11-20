@@ -827,15 +827,18 @@ module SettingsWindow =
             let fromBox = input "From contains" existing.From
             let recipBox = input "To or Cc contains" existing.RecipientContains
             let subjBox = input "Subject contains" existing.SubjectContains
+            let excludeBox = input "Skip if subject starts with" existing.SubjectExcludesPrefix
             labelled panel "Name" nameBox
-            labelled panel "From contains (sender address or name)" fromBox
-            labelled panel "To or Cc contains (recipient address or name)" recipBox
-            labelled panel "Subject contains" subjBox
+            labelled panel "From contains (sender address or name; comma-separated to match any)" fromBox
+            labelled panel "To or Cc contains (recipient address or name; comma-separated to match any)" recipBox
+            labelled panel "Subject contains (comma-separated to match any)" subjBox
+            labelled panel "Skip if subject starts with (e.g. Re:, Fwd:)" excludeBox
             let current () : Config.EmailRule =
                 { Name = nameBox.Text.Trim()
                   From = fromBox.Text.Trim()
                   RecipientContains = recipBox.Text.Trim()
-                  SubjectContains = subjBox.Text.Trim() }
+                  SubjectContains = subjBox.Text.Trim()
+                  SubjectExcludesPrefix = excludeBox.Text.Trim() }
             let hint = note "Set at least one of From, To/Cc or Subject; every one you set must match."
             panel.Children.Add hint |> ignore
             let mutable result = None
@@ -843,8 +846,8 @@ module SettingsWindow =
                 dialogButtons "Save" (fun () ->
                     result <- Some(current ())
                     dlg.DialogResult <- Nullable true)
-            // A rule with no criteria would match nothing (it's ignored), so
-            // don't let one be saved.
+            // A rule with no matching criteria would match nothing (it's
+            // ignored), so don't let one be saved. The exclusion doesn't count.
             let validate () = save.IsEnabled <- EmailRules.isActive (current ())
             for b in [ fromBox; recipBox; subjBox ] do
                 b.TextChanged.Add(fun _ -> validate ())
@@ -971,7 +974,8 @@ module SettingsWindow =
                         let criteria =
                             [ if hasText r.From then "From: " + r.From.Trim()
                               if hasText r.RecipientContains then "To/Cc: " + r.RecipientContains.Trim()
-                              if hasText r.SubjectContains then "Subject: " + r.SubjectContains.Trim() ]
+                              if hasText r.SubjectContains then "Subject: " + r.SubjectContains.Trim()
+                              if hasText r.SubjectExcludesPrefix then "Skip subject: " + r.SubjectExcludesPrefix.Trim() ]
                             |> String.concat "\n"
                         let name = EmailRules.label r
                         let actions = StackPanel(Orientation = Orientation.Horizontal)
@@ -992,7 +996,7 @@ module SettingsWindow =
                 let existing =
                     match index with
                     | Some i when i < Array.length cfg.EmailRules -> cfg.EmailRules.[i]
-                    | _ -> { Name = ""; From = ""; RecipientContains = ""; SubjectContains = "" }
+                    | _ -> { Name = ""; From = ""; RecipientContains = ""; SubjectContains = ""; SubjectExcludesPrefix = "" }
                 match showRuleDialog existing with
                 | Some r ->
                     change (fun c ->

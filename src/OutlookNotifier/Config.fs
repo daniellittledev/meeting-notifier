@@ -12,19 +12,25 @@ module Config =
 
     /// A rule that turns a matching incoming email into a check-off reminder.
     /// `From`, `RecipientContains` and `SubjectContains` are case-insensitive
-    /// partial matches; every criterion that is set must match. A rule with
-    /// none set is ignored.
+    /// partial matches; every criterion that is set must match. A rule with no
+    /// matching criterion set is ignored.
     [<CLIMutable>]
     type EmailRule =
         { Name: string
           /// Matched against the sender's address and display name, e.g.
-          /// "notifications@github.com" or just "github.com".
+          /// "notifications@github.com" or just "github.com". A comma-separated
+          /// list matches when any one term hits — e.g. two GitHub authors who
+          /// share the notifications@github.com address but differ by name.
           From: string
           /// Matched against the To and Cc recipients' addresses and display
           /// names, e.g. GitHub's reason address
           /// "approval_requested@noreply.github.com" (which rides in Cc).
           RecipientContains: string
-          SubjectContains: string }
+          SubjectContains: string
+          /// Reply/forward prefixes to skip, comma-separated (e.g. "Re:, Fwd:").
+          /// A match is rejected when the subject starts with any listed term.
+          /// This only narrows a rule; it never makes one active on its own.
+          SubjectExcludesPrefix: string }
 
     [<CLIMutable>]
     type AppConfig =
@@ -158,7 +164,8 @@ module Config =
                 { Name = orEmpty r.Name
                   From = orEmpty r.From
                   RecipientContains = orEmpty r.RecipientContains
-                  SubjectContains = orEmpty r.SubjectContains })
+                  SubjectContains = orEmpty r.SubjectContains
+                  SubjectExcludesPrefix = orEmpty r.SubjectExcludesPrefix })
         // A missing field deserialises to 0, so treat non-positive as "use
         // the default" rather than "no lookback".
         let lookback =
