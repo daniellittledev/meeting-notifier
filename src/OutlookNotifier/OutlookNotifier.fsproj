@@ -21,6 +21,8 @@
 
   <ItemGroup>
     <Compile Include="Domain.fs" />
+    <Compile Include="EmailLink.fs" />
+    <Compile Include="Browser.fs" />
     <Compile Include="Config.fs" />
     <Compile Include="EmailRules.fs" />
     <Compile Include="EmailStore.fs" />

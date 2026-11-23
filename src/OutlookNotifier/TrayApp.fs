@@ -134,11 +134,7 @@ module TrayApp =
 
         let handleEmailAction (action: EmailAction) =
             match action with
-            | OpenEmail url ->
-                try
-                    Process.Start(ProcessStartInfo(url, UseShellExecute = true))
-                    |> ignore
-                with _ -> ()
+            | OpenEmail url -> Browser.openEmail url
             // Remember them on disk so they never come back, even after a
             // restart. A whole "Dismiss all" arrives as one Done: one write.
             | Done ids ->
